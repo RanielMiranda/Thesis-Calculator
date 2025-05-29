@@ -116,8 +116,10 @@ const Solver = () => {
           </div>
         </div>
 
-        <div className="Measured-Data bg-light py-2 rounded-lg text-dark md:w-2/3 mx-auto flex items-center justify-center">
-          <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
+        <div className='flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto'>
+          <div className="w-full bg-light py-2 rounded-lg text-dark mx-auto flex items-center justify-center shadow-lg">
+            <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
+          </div>
         </div>
 
         <Bottomcontent />
