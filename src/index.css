@@ -18,7 +18,6 @@
 
 .dark {
   /* Dark overrides */
-
   --primary: 37, 99, 235; /* Blue #2595eb */
   --primarylight: 59, 130, 246; /* Light Blue #3b82f6 */
   --secondary: 28, 36, 52; /* Darker Blue #404067 */

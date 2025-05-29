@@ -1,16 +1,21 @@
+// Solver.jsx (ensure derivativeSteps state is correctly passed)
 import React, { useState } from 'react';
-import { MathJaxContext, MathJax } from "better-react-mathjax";
+import { MathJaxContext } from "better-react-mathjax"; // MathJax already here
 import Navbar from '../../Components/Navbar';
 import Bottomcontent from '../../Components/Bottomcontent';
 import InputField from './InputField';
 import SolverConfig from './SolverConfig';
 import SolutionDisplay from './SolutionDisplay';
 import StepByStep from './StepByStep';
+import MeasurementDisplay from './MeasurementDisplay.jsx';
 
 const Solver = () => {
   const [input, setInput] = useState('');
   const [derivative, setDerivative] = useState('');
-  const [derivativeSteps, setDerivativeSteps] = useState([]); // New state for steps
+  const [derivativeSteps, setDerivativeSteps] = useState([]); // This is passed to StepByStep
+  const [executionTime, setExecutionTime] = useState(null);
+  const [peakMemory, setPeakMemory] = useState(null);
+  const [dataStructure, setDataStructure] = useState('');
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
@@ -25,7 +30,7 @@ const Solver = () => {
     inputField.focus();
     inputField.setSelectionRange(start + symbol.length, start + symbol.length);
   };
-
+  
   const formatForMathJax = (text) => {
     return text
       .replace(/\\sqrt\(([^)]+)\)/g, "\\sqrt{$1}")
@@ -34,32 +39,54 @@ const Solver = () => {
       .replace(/(\w+)\^(\d+)/g, "$1^{$2}");
   };
 
-const solveExpression = async () => {
-  if (!input.trim()) {
-    alert("Please enter a function to solve.");
-    return;
-  }
-  const parsedInput = input.replace(/√/g, "sqrt");
-  const dataStructure = document.querySelector('select[name="option"]').value;
-  try {
-    const solveResponse = await fetch("http://127.0.0.1:8000/solve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expression: parsedInput, data_structure: dataStructure }),
-    });
-    if (!solveResponse.ok) throw new Error("Failed to fetch derivative");
-    const solveData = await solveResponse.json();
-    setDerivative(solveData.derivative);
-    setDerivativeSteps(solveData.steps);
-  } catch (error) {
-    console.error("Error:", error);
-    alert("Error processing the expression. Please check your input.");
-  }
-};
+  const solveExpression = async () => {
+    if (!input.trim()) {
+      alert("Please enter a function to solve.");
+      return;
+    }
+    const parsedInput = input;
+    
+    const dataStructureElement = document.querySelector('select[name="option"]');
+    if (!dataStructureElement) {
+        alert("Could not find data structure selector. Please ensure it's rendered.");
+        return;
+    }
+    const currentDataStructure = dataStructureElement.value;
+    setDataStructure(currentDataStructure);
 
-  const generateExpression = () => {
-    // Implement if needed
+    console.log("Sending to backend:", { expression: parsedInput, data_structure: currentDataStructure });
+
+    try {
+      const solveResponse = await fetch("http://127.0.0.1:8000/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expression: parsedInput, data_structure: currentDataStructure }),
+      });
+
+      const solveData = await solveResponse.json(); // Try to parse JSON regardless of ok status first for error messages
+
+      if (!solveResponse.ok) {
+        console.error("Solver Error Response:", solveData);
+        throw new Error(solveData.detail || "Failed to fetch derivative from backend.");
+      }
+      
+      console.log("Received from backend:", solveData);
+      setDerivative(solveData.derivative_latex); // Expecting LaTeX string
+      setDerivativeSteps(solveData.steps || []); // Expecting an array of step objects
+      setExecutionTime(solveData.execution_time_ms);
+      setPeakMemory(solveData.peak_memory_bytes);
+
+    } catch (error) {
+      console.error("Error in solveExpression:", error);
+      alert(`Error processing the expression: ${error.message}`);
+      setDerivative(''); // Clear previous results on error
+      setDerivativeSteps([]); // Clear previous steps on error
+      setExecutionTime(null);
+      setPeakMemory(null);
+    }
   };
+
+   const generateExpression = () => { /* ... */ }; // Your existing function
 
   return (
     <MathJaxContext>
@@ -67,26 +94,30 @@ const solveExpression = async () => {
         <Navbar />
         <h1 className="font-bold text-2xl text-dark text-center mt-10 mb-4">Derivative Solver</h1>
         
-        <div className="flex flex-col md:flex-row gap-8 p-6 w-2/3 justify-center mx-auto">
+        <div className="flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto">
           <div className="w-full md:w-1/3">
             <InputField 
               input={input}
               handleInputChange={handleInputChange}
-              setInput={setInput}
+              setInput={setInput} // Make sure setInput is passed if InputField uses it directly
               solveExpression={solveExpression}
               insertSymbol={insertSymbol}
-              formatForMathJax={formatForMathJax}
+              formatForMathJax={formatForMathJax} // Pass if InputField uses it for live preview
             />
-            <SolverConfig />
+            <SolverConfig /> {/* Ensure this doesn't conflict with how data_structure is read */}
           </div>
 
           <div className="w-full md:w-2/3">
             <SolutionDisplay 
-              derivative={derivative}
-              formatForMathJax={formatForMathJax}
+              derivative={derivative} // Already expects LaTeX
             />
-            <StepByStep steps={derivativeSteps} /> {/* Pass steps to StepByStep */}
+            {/* Pass the dynamic steps to StepByStep */}
+            <StepByStep steps={derivativeSteps} /> 
           </div>
+        </div>
+
+        <div className="Measured-Data bg-light py-2 rounded-lg text-dark md:w-2/3 mx-auto flex items-center justify-center">
+          <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
         </div>
 
         <Bottomcontent />
@@ -96,3 +127,4 @@ const solveExpression = async () => {
 };
 
 export default Solver;
+
