@@ -8,7 +8,7 @@ from pydantic import BaseModel
 # Import the computation functions
 from derivative_ast import compute_derivative_ast 
 from derivative_dag import compute_derivative_dag
-# from derivative_nll import compute_derivative_nll # Placeholder
+from derivative_nll import compute_derivative_nll
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -66,9 +66,8 @@ async def solve_derivative(input_data: ExpressionInput):
             result_data = compute_derivative_ast(sympy_expr, variable_symbol)
         elif input_data.data_structure == "DAG":
             result_data = compute_derivative_dag(sympy_expr, variable_symbol)
-        # elif input_data.data_structure == "NLL":
-        #     # result_data = compute_derivative_nll(sympy_expr, variable_symbol)
-        #     raise HTTPException(status_code=501, detail="NLL method not fully implemented.")
+        elif input_data.data_structure == "NLL":
+            result_data = compute_derivative_nll(sympy_expr, variable_symbol)
         else:
             logger.error(f"Invalid data structure: {input_data.data_structure}")
             raise HTTPException(status_code=400, detail="Invalid data structure. Choose AST or DAG.")
