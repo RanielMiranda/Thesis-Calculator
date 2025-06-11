@@ -38,7 +38,7 @@ def _differentiate_recursive(expression, variable, steps_list):
 
     # --- Sum Rule: d(u+v)/dx = du/dx + dv/dx ---
     if isinstance(expression, Add):
-        _add_step(steps_list, expression, "sumRule_start", f"Applying Sum Rule to: {latex(expression)}")
+        _add_step(steps_list, expression, "sumRule_start", f"Applying Sum Rule: ")
         d_terms = []
         for arg in expression.args:
             d_term = _differentiate_recursive(arg, variable, steps_list)
@@ -136,74 +136,74 @@ def _differentiate_recursive(expression, variable, steps_list):
     # --- Power Rule: d(u^n)/dx = n*u^(n-1)*du/dx ---
     if isinstance(expression, Pow):
         base, exponent = expression.args[0], expression.args[1]
-        _add_step(steps_list, expression, "powerRule_start", f"Applying Power Rule to: ({latex(base)})^{{{latex(exponent)}}}")
+        _add_step(steps_list, expression, "powerRule_start", f"Applying Power Rule to: ")
 
         if not exponent.has(variable): # u^n where n is constant
             n = exponent
-            _add_step(steps_list, Derivative(base, variable), "chainRule_for_power_base", f"Chain rule: need derivative of base $\\frac{{d}}{{d{latex(variable)}}}({latex(base)})$ for ({latex(base)})^{{{latex(n)}}}")
+            _add_step(steps_list, Derivative(base, variable), "chainRule_for_power_base", f"Chain rule: need derivative of base: ")
             dbase_dx = _differentiate_recursive(base, variable, steps_list)
             
             term_n = n
             term_base_pow = Pow(base, n - 1).simplify()
             
             result = Mul(term_n, term_base_pow, dbase_dx).simplify()
-            _add_step(steps_list, result, "powerRule_u_n_result", f"Power Rule result for $u^n$: ${latex(n)} \\cdot ({latex(base)})^{{{latex(n-1)}}} \\cdot ({latex(dbase_dx)}) = {latex(result)}$")
+            _add_step(steps_list, result, "powerRule_u_n_result", f"Power Rule result for: ")
             return result
         elif not base.has(variable) and exponent.has(variable): # a^u where a is constant
             a = base
-            _add_step(steps_list, expression, "expRule_a_u_start", f"Applying Exponential Rule for ({latex(a)})^{{{latex(exponent)}}}")
-            _add_step(steps_list, Derivative(exponent, variable), "chainRule_for_exp_a_u_exponent", f"Chain rule: need derivative of exponent $\\frac{{d}}{{d{latex(variable)}}}({latex(exponent)})$ for ({latex(a)})^{{{latex(exponent)}}}")
+            _add_step(steps_list, expression, "expRule_a_u_start", f"Applying Exponential Rule for: ")
+            _add_step(steps_list, Derivative(exponent, variable), "chainRule_for_exp_a_u_exponent", f"Chain rule: need derivative of exponent: ")
             du_dx = _differentiate_recursive(exponent, variable, steps_list)
             result = Mul(expression, log(a), du_dx).simplify() 
-            _add_step(steps_list, result, "expRule_a_u_result", f"Result for $a^u$: ({latex(expression)}) \\cdot {latex(log(a))} \\cdot ({latex(du_dx)}) = {latex(result)}$")
+            _add_step(steps_list, result, "expRule_a_u_result", f"Result for : ")
             return result
         else: # f(x)^g(x) - general power rule (logarithmic differentiation)
-            _add_step(steps_list, expression, "powerRule_general_start", f"General Power Rule for functions raised to functions: ${latex(expression)}$")
+            _add_step(steps_list, expression, "powerRule_general_start", f"General Power Rule for functions raised to functions: ")
             # SymPy's diff handles this as d/dx(e^(g(x)log(f(x))))
             temp_result = Derivative(expression, variable, evaluate=True).simplify()
-            _add_step(steps_list, temp_result, "powerRule_general_sympy_fallback", f"Using SymPy's diff for general power rule $f(x)^{{g(x)}}$. Result: ${latex(temp_result)}$")
+            _add_step(steps_list, temp_result, "powerRule_general_sympy_fallback", f"Using SymPy's diff for general power rule $f(x)^{{g(x)}}$. Result: ")
             return temp_result
 
     # --- Function Calls (Chain Rule implicitly) ---
     if isinstance(expression, sin):
         u = expression.args[0]
-        _add_step(steps_list, expression, "sinRule_start", f"Applying Sine Rule to: {latex(expression)}")
-        _add_step(steps_list, Derivative(u, variable), "chainRule_for_sin_arg", f"Chain rule: need derivative of argument: $\\frac{{d}}{{d{latex(variable)}}}({latex(u)})$")
+        _add_step(steps_list, expression, "sinRule_start", f"Applying Sine Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_sin_arg", f"Chain rule: need derivative of argument: ")
         du_dx = _differentiate_recursive(u, variable, steps_list)
         result = Mul(cos(u), du_dx).simplify()
-        _add_step(steps_list, result, "sinRule_result", f"Sine Rule result: $\\cos({latex(u)}) \\cdot ({latex(du_dx)}) = {latex(result)}$")
+        _add_step(steps_list, result, "sinRule_result", f"Sine Rule result: ")
         return result
 
     if isinstance(expression, cos):
         u = expression.args[0]
-        _add_step(steps_list, expression, "cosRule_start", f"Applying Cosine Rule to: {latex(expression)}")
-        _add_step(steps_list, Derivative(u, variable), "chainRule_for_cos_arg", f"Chain rule: need derivative of argument: $\\frac{{d}}{{d{latex(variable)}}}({latex(u)})$")
+        _add_step(steps_list, expression, "cosRule_start", f"Applying Cosine Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_cos_arg", f"Chain rule: need derivative of argument: ")
         du_dx = _differentiate_recursive(u, variable, steps_list)
         result = Mul(S.NegativeOne, sin(u), du_dx).simplify() 
-        _add_step(steps_list, result, "cosRule_result", f"Cosine Rule result: $-\\sin({latex(u)}) \\cdot ({latex(du_dx)}) = {latex(result)}$")
+        _add_step(steps_list, result, "cosRule_result", f"Cosine Rule result: ")
         return result
 
     if isinstance(expression, exp):
         u = expression.args[0]
-        _add_step(steps_list, expression, "expRule_start", f"Applying Exponential Rule to: $e^{{{latex(u)}}}$")
-        _add_step(steps_list, Derivative(u, variable), "chainRule_for_exp_arg", f"Chain rule: need derivative of argument: $\\frac{{d}}{{d{latex(variable)}}}({latex(u)})$")
+        _add_step(steps_list, expression, "expRule_start", f"Applying Exponential Rule to: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_exp_arg", f"Chain rule: need derivative of argument: ")
         du_dx = _differentiate_recursive(u, variable, steps_list)
         result = Mul(exp(u), du_dx).simplify() 
-        _add_step(steps_list, result, "expRule_result", f"Exponential Rule $e^u$ result: $e^{{{latex(u)}}} \\cdot ({latex(du_dx)}) = {latex(result)}$")
+        _add_step(steps_list, result, "expRule_result", f"Exponential Rule $e^u$ result: ")
         return result
     
     if isinstance(expression, log): # Natural logarithm (base e)
         u = expression.args[0]
-        _add_step(steps_list, expression, "logRule_start", f"Applying Natural Logarithmic Rule to: ${latex(expression)}$")
-        _add_step(steps_list, Derivative(u, variable), "chainRule_for_log_arg", f"Chain rule: need derivative of argument: $\\frac{{d}}{{d{latex(variable)}}}({latex(u)})$")
+        _add_step(steps_list, expression, "logRule_start", f"Applying Natural Logarithmic Rule to: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_log_arg", f"Chain rule: need derivative of argument: ")
         du_dx = _differentiate_recursive(u, variable, steps_list)
         result = Mul(Pow(u, -1), du_dx).simplify() 
-        _add_step(steps_list, result, "logRule_result", f"Natural Logarithmic Rule result: $({latex(du_dx)}) \\cdot \\frac{{1}}{{{latex(u)}}} = {latex(result)}$")
+        _add_step(steps_list, result, "logRule_result", f"Natural Logarithmic Rule result: ")
         return result
     
     # Generic function (e.g., f(x), g(x) not defined in SymPy)
     if isinstance(expression, Function) and not isinstance(expression, (sin,cos,exp,log,Pow,Add,Mul,Integer,Symbol,Derivative,UndefinedFunction)):
-        _add_step(steps_list, expression, "generalFunctionRule_start", f"General function derivative for ${latex(expression)}$")
+        _add_step(steps_list, expression, "generalFunctionRule_start", f"General function derivative for ")
         temp_result = Derivative(expression, variable, evaluate=True).simplify() 
         _add_step(steps_list, temp_result, "generalFunctionRule_result", f"Result for ${latex(expression)}$: ${latex(temp_result)}$")
         return temp_result
@@ -211,7 +211,7 @@ def _differentiate_recursive(expression, variable, steps_list):
     # Fallback for expressions not explicitly handled by rules
     _add_step(steps_list, expression, "unknownRule", f"No specific AST rule matched for: {latex(expression)}. Using SymPy's diff as fallback.")
     temp_result = Derivative(expression, variable, evaluate=True).simplify()
-    _add_step(steps_list, temp_result, "unknownRule_sympy_fallback", f"Fallback SymPy result: {latex(temp_result)}")
+    _add_step(steps_list, temp_result, "unknownRule_sympy_fallback", f"Fallback SymPy result: ")
     return temp_result
 
 
@@ -219,7 +219,7 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
     steps = []  
 
     _add_step(steps, sympy_expr, "initial_expression", 
-              f"Differentiating: {latex(sympy_expr)} with respect to {latex(variable_symbol)}", 
+              f"Differentiating with respect to {latex(variable_symbol)}:", 
               prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
 
     tracemalloc.start()
@@ -229,7 +229,6 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
     
     end_time = time.perf_counter()
     current_memory, peak_memory = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
 
     execution_time_ms = (end_time - start_time) * 1000
 
@@ -237,10 +236,10 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
     # Check if the last step's expression matches the final derivative
     if not steps or latex(steps[-1]['parts'][0]['latex']) != latex(differentiated_expr):
         _add_step(steps, differentiated_expr, "final_derivative", 
-                    f"The final derivative is: {latex(differentiated_expr)}")
+                    f"The final derivative is: ")
     else: # Update the last step's rule and explanation if it already contains the final result
         steps[-1]['rule_id'] = "final_derivative"
-        steps[-1]['explanation_text'] = f"The final derivative is: {latex(differentiated_expr)}"
+        steps[-1]['explanation_text'] = f"The final derivative is: "
 
     
     final_latex_derivative = latex(differentiated_expr)

@@ -29,6 +29,9 @@ const stepExplanation = {
     "powerRule_general_start": "This is a general power rule for functions raised to functions, often solved using logarithmic differentiation.",
     "powerRule_general_sympy_fallback": "SymPy's direct computation for f(x)^g(x).",
     "chainRule_for_power_base": "Applying the chain rule for the base of the power function.",
+    "sqrtRule_start": "The derivative of √u is (1/(2√u))*u'. This is a special case of the power rule where n = 1/2.", 
+    "sqrtRule_result": "Result of applying the square root rule.", 
+    "chainRule_for_sqrt_arg": "Applying the chain rule for the argument of the square root function.", 
     "expRule_a_u_start": "This is the derivative rule for a constant base raised to a function: d/dx(a^u) = a^u * ln(a) * u'.",
     "expRule_a_u_result": "Result of applying the exponential rule for a^u.",
     "chainRule_for_exp_a_u_exponent": "Applying the chain rule for the exponent of a^u.",
@@ -52,95 +55,91 @@ const stepExplanation = {
 };
 
 const StepByStep = ({ steps }) => { // steps prop comes from Solver.jsx
-    const [hoveredRuleKey, setHoveredRuleKey] = useState(null);
-    const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
+    const [hoveredRuleKey, setHoveredRuleKey] = useState(null);
+    const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
 
-    const handleHover = (explanationKey, event) => {
-        if (!explanationKey || !stepExplanation[explanationKey]) {
-            setHoveredRuleKey(null); // Clear if no valid explanation
-            return;
-        }
-        setHoveredRuleKey(explanationKey);
+    const handleHover = (explanationKey, event) => {
+        if (!explanationKey || !stepExplanation[explanationKey]) {
+            setHoveredRuleKey(null); // Clear if no valid explanation
+            return;
+        }
+        setHoveredRuleKey(explanationKey);
         const rect = event.currentTarget.getBoundingClientRect();
         // Position above and centered
         setPopupPosition({
-            top: rect.top + window.scrollY - 10,
-            left: rect.left + window.scrollX + (rect.width / 2)
+            top: event.clientY,
+            left: event.clientX
         });
-    };
+    };
 
-    const handleMouseLeave = () => {
-        setHoveredRuleKey(null);
-    };
+    const handleMouseLeave = () => {
+        setHoveredRuleKey(null);
+    };
 
-    if (!steps || steps.length === 0) {
-        return (
-            <div className="card p-6 bg-light shadow-lg rounded-lg mt-6 mx-auto w-full items-center flex flex-col">
-                <h3 className="text-primary mb-4 font-bold text-xl md:text-2xl text-center">
-                    Step-by-Step Explanation
-                </h3>
-                <p className="text-dark">Enter an expression and click "Solve" to see the steps here.</p>
-            </div>
-        );
-    }
+    if (!steps || steps.length === 0) {
+        return (
+            <div className="card p-6 bg-light shadow-lg rounded-lg mt-6 mx-auto w-full items-center flex flex-col">
+                <h3 className="text-primary mb-4 font-bold text-xl md:text-2xl text-center">
+                    Step-by-Step Explanation
+                </h3>
+                <p className="text-dark">Enter an expression and click "Solve" to see the steps here.</p>
+            </div>
+        );
+    }
 
-    return (
-        <div className="card p-6 bg-light shadow-lg rounded-lg mt-6 mx-auto w-full flex flex-col items-center pb-10">
-            <h3 className="text-primary mb-6 font-bold text-xl md:text-2xl text-center">
-                Step-by-Step Explanation
-            </h3>
-            <div className="steps-container space-y-3 w-full max-w-2xl justify-center items-center">
-                {steps.map((step, stepIndex) => (
-                    <div key={step.id || `step-${stepIndex}`} className="step-line flex items-center text-dark text-lg font-medium">
-                        {step.prefix && (
-                            // Add $$ to make it display math if `step.prefix` is a display-style LaTeX string
-                            // Or use single $ for inline if it's meant to be inline
-                            <MathJax inline dynamic>
-                                <span className="mr-2">{`$$ ${step.prefix} $$`}</span> 
-                            </MathJax>
-                        )}
-                        {step.parts.map((part, partIndex) => (
-                            // Add $$ to make it display math
-                            <MathJax inline dynamic key={part.id || `part-${stepIndex}-${partIndex}`}>
-                                <span
-                                    className={`step-part ${part.explanation_key ? 'cursor-pointer transition-colors duration-200 hover:text-primary' : ''} ${hoveredRuleKey === part.explanation_key ? 'text-primary font-semibold' : ''}`}
-                                    onMouseEnter={(e) => part.explanation_key && handleHover(part.explanation_key, e)}
-                                    onMouseLeave={handleMouseLeave}
-                                >
-                                    {`$$ ${part.latex} $$`}
-                                </span>
-                            </MathJax>
-                        ))}
-                        {/* Optionally display the explanation text directly next to the step */}
+    return (
+        <div className="card p-6 bg-light shadow-lg rounded-lg mt-6 mx-auto w-full flex flex-col items-center pb-10">
+            <h3 className="text-primary mb-6 font-bold text-xl md:text-2xl text-center">
+                Step-by-Step Explanation
+            </h3>
+            <div className="steps-container space-y-3 w-full max-w-2xl justify-center items-center">
+                {steps.map((step, stepIndex) => (
+                    <div key={step.id || `step-${stepIndex}`} className="step-line flex items-center text-dark text-lg font-medium">
+                        {step.prefix && (
+                            <MathJax inline dynamic>
+                                <span className="mr-2">{`$$ ${step.prefix} $$`}</span> 
+                            </MathJax>
+                        )}
+                        {/* Display explanation text first */}
                         {step.explanation_text && (
-                            <span className="ml-4 text-sm text-dark max-w-[40%]">
-                                {/* Wrap in $ for inline math within the explanation text */}
-                                <MathJax inline dynamic>{`$$${step.explanation_text}$$`}</MathJax>
+                            <span className="mr-2 text-base text-dark">
+                                <MathJax inline dynamic>{` ${step.explanation_text} `}</MathJax>
                             </span>
                         )}
-                    </div>
-                ))}
-            </div>
+                        {step.parts.map((part, partIndex) => (
+                            <MathJax inline dynamic key={part.id || `part-${stepIndex}-${partIndex}`}>
+                                <span
+                                    className={`step-part ${part.explanation_key ? 'cursor-pointer transition-colors duration-200 hover:text-primary' : ''} ${hoveredRuleKey === part.explanation_key ? 'text-primary font-semibold' : ''}`}
+                                    onMouseEnter={(e) => part.explanation_key && handleHover(part.explanation_key, e)}
+                                    onMouseLeave={handleMouseLeave}
+                                >
+                                    {`$$ ${part.latex} $$`}
+                                </span>
+                            </MathJax>
+                        ))}
+                    </div>
+                ))}
+            </div>
 
-            {/* Explanation Popup on Hover */}
-            {hoveredRuleKey && stepExplanation[hoveredRuleKey] && (
-                <div
-                    className="fixed p-3 rounded-md bg-secondary text-dark shadow-xl z-20 max-w-xs md:max-w-sm text-sm border border-primarylight"
-                    style={{
-                        top: `${popupPosition.top}px`,
-                        left: `${popupPosition.left}px`,
-                        transform: 'translateX(-50%) translateY(-100%)',
-                        pointerEvents: 'none' // Prevent interaction with the popup itself
-                    }}
-                >
-                    <MathJax dynamic>
-                        {/* Wrap in $$ for display math in the popup, as it's a block explanation */}
-                        {`$$ ${stepExplanation[hoveredRuleKey]} $$`}
-                    </MathJax>
-                </div>
-            )}
-        </div>
-    );
+            {/* Explanation Popup on Hover */}
+            {hoveredRuleKey && stepExplanation[hoveredRuleKey] && (
+              <div
+                  className="fixed p-3 rounded-md bg-secondary text-dark shadow-xl z-20 max-w-xs md:max-w-sm text-sm border border-primarylight"
+                  style={{
+                    top: `${popupPosition.top}px`,
+                    left: `${popupPosition.left}px`,
+                    transform: 'translate(-50%, -100%)',
+                    pointerEvents: 'none'
+                  }}
+              >
+                  <MathJax dynamic>
+                    {/* Wrap in $$ for display math in the popup, as it's a block explanation */}
+                    {` ${stepExplanation[hoveredRuleKey]} `}
+                  </MathJax>
+              </div>
+            )}
+        </div>
+    );
 };
 
 export default StepByStep;

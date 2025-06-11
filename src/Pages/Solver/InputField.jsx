@@ -59,16 +59,16 @@ const InputField = ({ input, handleInputChange, setInput, solveExpression, inser
             className={`btn ${btn.className} px-3 py-1 rounded-md h-10 ${btn.special ? 'flex items-center' : ''}`}
           >
             <MathJax inline>
-              {btn.special 
-                ? btn.symbol === '/' 
-                  ? <MathJax inline style={{fontSize: '0.7em'}}>{'$$ \\frac{[\\,]}{[\\,]} $$'}</MathJax> 
-                  : '$$ x^{2} $$' 
+              {btn.special
+                ? btn.symbol === '/'
+                  ? <MathJax inline style={{fontSize: '0.7em'}}>{'$$ \\frac{[\\,]}{[\\,]} $$'}</MathJax>
+                  : '$$ x^{2} $$'
                 : btn.symbol}
             </MathJax>
           </button>
         ))}
       </div>
-      
+
       <div className="flex flex-col pt-4">
         <button className="btn bg-primary hover:bg-primarylight py-2 rounded-md text-dark"
             onClick={generateExpression}>
@@ -80,7 +80,8 @@ const InputField = ({ input, handleInputChange, setInput, solveExpression, inser
         <h className="text-primary font-bold text-lg">This is Displayed as:</h>
         <div className="flex bg-secondary w-full mx-auto rounded-md p-2 items-center justify-center">
           <MathJax className = "text-dark">
-          {`$$\\frac{d}{dx} = ${formatForMathJax(input)}$$`}
+            {/* Use the formatForMathJax prop provided by Solver */}
+            {`$$\\frac{d}{dx} = ${formatForMathJax(input)}$$`}
           </MathJax>
         </div>
       </div>
