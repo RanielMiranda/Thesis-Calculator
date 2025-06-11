@@ -60,7 +60,7 @@ def _differentiate_recursive(expression, variable, steps_list):
             _add_step(steps_list, expression, "constantMultipleRule_start", f"Applying Constant Multiple Rule for {latex(c)} * {latex(f)}")
             df_dx = _differentiate_recursive(f, variable, steps_list)
             result = Mul(c, df_dx).simplify() # Simplify the product for better presentation
-            _add_step(steps_list, result, "constantMultipleRule_result", f"Result: {latex(c)} * ({latex(df_dx)}) = {latex(result)}")
+            _add_step(steps_list, result, "constantMultipleRule_result", f"Result: {latex(c)} * ({latex(df_dx)}): ")
             return result
         # Standard Product Rule for two variable terms
         elif len(non_const_terms) == 2 and not const_terms:

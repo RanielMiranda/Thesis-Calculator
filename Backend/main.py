@@ -2,15 +2,13 @@
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sympy import symbols, sympify, latex, SympifyError, Symbol as SympySymbol 
+from sympy import symbols, sympify, latex, SympifyError, Symbol as SympySymbol
 from pydantic import BaseModel
 
-# Import the AST derivative computation function
+# Import the computation functions
 from derivative_ast import compute_derivative_ast 
-
-# (Placeholders for DAG and NLL would be similar but with their own compute functions)
-# from derivative_dag import compute_derivative_dag 
-# from derivative_nll import compute_derivative_nll 
+from derivative_dag import compute_derivative_dag
+# from derivative_nll import compute_derivative_nll # Placeholder
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ app.add_middleware(
 
 class ExpressionInput(BaseModel):
     expression: str
-    variable: str = 'x'  # Default variable, can be specified by client
+    variable: str = 'x'
     data_structure: str
 
 def preprocess_expression(expr_str: str, var_str: str):
@@ -66,15 +64,14 @@ async def solve_derivative(input_data: ExpressionInput):
         result_data = None
         if input_data.data_structure == "AST":
             result_data = compute_derivative_ast(sympy_expr, variable_symbol)
-        # elif input_data.data_structure == "DAG":
-        #     # result_data = compute_derivative_dag(sympy_expr, variable_symbol)
-        #     raise HTTPException(status_code=501, detail="DAG method not fully implemented for detailed data collection.")
+        elif input_data.data_structure == "DAG":
+            result_data = compute_derivative_dag(sympy_expr, variable_symbol)
         # elif input_data.data_structure == "NLL":
         #     # result_data = compute_derivative_nll(sympy_expr, variable_symbol)
-        #     raise HTTPException(status_code=501, detail="NLL method not fully implemented for detailed data collection.")
+        #     raise HTTPException(status_code=501, detail="NLL method not fully implemented.")
         else:
             logger.error(f"Invalid data structure: {input_data.data_structure}")
-            raise HTTPException(status_code=400, detail="Invalid data structure. Choose AST, DAG, or NLL.")
+            raise HTTPException(status_code=400, detail="Invalid data structure. Choose AST or DAG.")
 
         if result_data:
             response = {
@@ -82,13 +79,13 @@ async def solve_derivative(input_data: ExpressionInput):
                 "steps": result_data["steps"],
                 "execution_time_ms": result_data["execution_time_ms"],
                 "peak_memory_bytes": result_data["peak_memory_bytes"],
-                "ast_node_count": result_data["ast_node_count"],
+                "ast_node_count": result_data["ast_node_count"], # This key is used for both AST and DAG node counts
                 "data_structure_used": input_data.data_structure
             }
             logger.debug(f"Computation successful. Time: {response['execution_time_ms']:.2f}ms, Memory: {response['peak_memory_bytes']} bytes.")
             return response
         else:
-            raise HTTPException(status_code=500, detail="Error computing derivative or data structure not fully implemented.")
+            raise HTTPException(status_code=500, detail="Error computing derivative.")
 
     except ValueError as ve:
         logger.error(f"ValueError during solve: {str(ve)}")

@@ -95,15 +95,10 @@ const StepByStep = ({ steps }) => { // steps prop comes from Solver.jsx
             <div className="steps-container space-y-3 w-full max-w-2xl justify-center items-center">
                 {steps.map((step, stepIndex) => (
                     <div key={step.id || `step-${stepIndex}`} className="step-line flex items-center text-dark text-lg font-medium">
-                        {step.prefix && (
-                            <MathJax inline dynamic>
-                                <span className="mr-2">{`$$ ${step.prefix} $$`}</span> 
-                            </MathJax>
-                        )}
                         {/* Display explanation text first */}
                         {step.explanation_text && (
                             <span className="mr-2 text-base text-dark">
-                                <MathJax inline dynamic>{` ${step.explanation_text} `}</MathJax>
+                                <MathJax inline dynamic>{`= ${step.explanation_text} `}</MathJax>
                             </span>
                         )}
                         {step.parts.map((part, partIndex) => (
