@@ -2,7 +2,7 @@
 import React from 'react';
 import { MathJax } from "better-react-mathjax";
 
-const InputField = ({ input, handleInputChange, setInput, solveExpression, insertSymbol, formatForMathJax, generateExpression }) => {
+const InputField = ({ input, handleInputChange, setInput, solveExpression, insertSymbol, formatForMathJax, generateExpression, clearInput }) => {
   return (
     <div className="card p-6 bg-light shadow-md rounded-lg">
       <h3 className="text-primary mb-4 font-bold text-lg">Equation Input</h3>
@@ -17,7 +17,7 @@ const InputField = ({ input, handleInputChange, setInput, solveExpression, inser
         />
         <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex gap-2">
           <button
-            onClick={() => setInput('')}
+            onClick={clearInput}
             className="btn text-red-500 hover:text-red-700"
           >
             <svg

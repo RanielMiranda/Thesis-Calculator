@@ -132,7 +132,14 @@ const Solver = () => {
     }
   };
 
-   const generateExpression = () => { /* ... */ }; // Your existing function
+  const clearInput = () => {
+    setInput('');
+      setDerivative(''); // Clear previous results on error
+      setDerivativeSteps([]); // Clear previous steps on error
+      setExecutionTime(null);
+      setPeakMemory(null);    
+  }
+  const generateExpression = () => { /* ... */ }; // Your existing function
 
   return (
     <MathJaxContext>
@@ -149,6 +156,7 @@ const Solver = () => {
               solveExpression={solveExpression}
               insertSymbol={insertSymbol}
               formatForMathJax={formatForMathJax} // Pass if InputField uses it for live preview
+              clearInput={clearInput}
             />
             <SolverConfig /> {/* Ensure this doesn't conflict with how data_structure is read */}
           </div>
@@ -157,14 +165,11 @@ const Solver = () => {
             <SolutionDisplay 
               derivative={derivative} // Already expects LaTeX
             />
+          <div>
+            <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
+          </div>
             {/* Pass the dynamic steps to StepByStep */}
             <StepByStep steps={derivativeSteps} /> 
-          </div>
-        </div>
-
-        <div className='flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto'>
-          <div className="w-full bg-light py-2 rounded-lg text-dark mx-auto flex items-center justify-center shadow-lg">
-            <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
           </div>
         </div>
 

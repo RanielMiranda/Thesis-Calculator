@@ -2,6 +2,7 @@ import React from 'react';
 
 const MeasurementDisplay = ({ dataStructure, executionTime, peakMemory }) => {
   return (
+    <div className="mt-6 bg-light py-2 rounded-lg text-dark mx-auto flex items-center justify-center shadow-lg">
       <table className="card table-auto w-full text-center">
         <thead>
           <tr>
@@ -18,6 +19,7 @@ const MeasurementDisplay = ({ dataStructure, executionTime, peakMemory }) => {
           </tr>
         </tbody>
       </table>
+    </div>
   );
 };
 
