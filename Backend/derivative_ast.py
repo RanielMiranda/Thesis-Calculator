@@ -1,5 +1,6 @@
 # derivative_ast.py
 from sympy import symbols, sympify, latex, Add, Mul, Pow, sin, cos, exp, log, Integer, Symbol, Derivative, Function
+from sympy import tan, sec, csc, cot # Import new trigonometric functions
 from sympy.core.function import UndefinedFunction
 from sympy import S # Import for simplification, e.g., S.Zero, S.One
 import time
@@ -125,6 +126,7 @@ def _differentiate_recursive(expression, variable, steps_list):
             result = Mul(quotient_numerator, Pow(quotient_denominator, -1)).simplify()
 
             explanation_text = f"Quotient Rule result: $\\frac{{{latex(v)} \\cdot ({latex(du_dx)}) - {latex(u)} \\cdot ({latex(dv_dx)})}}{{{{latex(v)}}^2}} = {latex(result)}$"
+            _add_step(steps_list, result, "quotientRule_result", explanation_text)
             return result
         # For more complex rational expressions, let SymPy handle it
         else:
@@ -183,6 +185,42 @@ def _differentiate_recursive(expression, variable, steps_list):
         _add_step(steps_list, result, "cosRule_result", f"Cosine Rule result: ")
         return result
 
+    if isinstance(expression, tan):
+        u = expression.args[0]
+        _add_step(steps_list, expression, "tanRule_start", f"Applying Tangent Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_tan_arg", f"Chain rule: need derivative of argument: ")
+        du_dx = _differentiate_recursive(u, variable, steps_list)
+        result = Mul(Pow(sec(u), 2), du_dx).simplify() 
+        _add_step(steps_list, result, "tanRule_result", f"Tangent Rule result: ")
+        return result
+
+    if isinstance(expression, sec):
+        u = expression.args[0]
+        _add_step(steps_list, expression, "secRule_start", f"Applying Secant Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_sec_arg", f"Chain rule: need derivative of argument: ")
+        du_dx = _differentiate_recursive(u, variable, steps_list)
+        result = Mul(sec(u), tan(u), du_dx).simplify() 
+        _add_step(steps_list, result, "secRule_result", f"Secant Rule result: ")
+        return result
+
+    if isinstance(expression, csc):
+        u = expression.args[0]
+        _add_step(steps_list, expression, "cscRule_start", f"Applying Cosecant Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_csc_arg", f"Chain rule: need derivative of argument: ")
+        du_dx = _differentiate_recursive(u, variable, steps_list)
+        result = Mul(S.NegativeOne, csc(u), cot(u), du_dx).simplify() 
+        _add_step(steps_list, result, "cscRule_result", f"Cosecant Rule result: ")
+        return result
+
+    if isinstance(expression, cot):
+        u = expression.args[0]
+        _add_step(steps_list, expression, "cotRule_start", f"Applying Cotangent Rule: ")
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_cot_arg", f"Chain rule: need derivative of argument: ")
+        du_dx = _differentiate_recursive(u, variable, steps_list)
+        result = Mul(S.NegativeOne, Pow(csc(u), 2), du_dx).simplify() 
+        _add_step(steps_list, result, "cotRule_result", f"Cotangent Rule result: ")
+        return result
+
     if isinstance(expression, exp):
         u = expression.args[0]
         _add_step(steps_list, expression, "expRule_start", f"Applying Exponential Rule to: ")
@@ -202,7 +240,7 @@ def _differentiate_recursive(expression, variable, steps_list):
         return result
     
     # Generic function (e.g., f(x), g(x) not defined in SymPy)
-    if isinstance(expression, Function) and not isinstance(expression, (sin,cos,exp,log,Pow,Add,Mul,Integer,Symbol,Derivative,UndefinedFunction)):
+    if isinstance(expression, Function) and not isinstance(expression, (sin,cos,exp,log,Pow,Add,Mul,Integer,Symbol,Derivative,UndefinedFunction,tan,sec,csc,cot)):
         _add_step(steps_list, expression, "generalFunctionRule_start", f"General function derivative for ")
         temp_result = Derivative(expression, variable, evaluate=True).simplify() 
         _add_step(steps_list, temp_result, "generalFunctionRule_result", f"Result for ${latex(expression)}$: ${latex(temp_result)}$")

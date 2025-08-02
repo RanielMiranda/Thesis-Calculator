@@ -36,8 +36,8 @@ def preprocess_expression(expr_str: str, var_str: str):
 
         processed_expr_str = expr_str.replace('^', '**')
         
-        from sympy import sqrt, sin, cos, tan, exp, log 
-        function_locals = {"sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log}
+        from sympy import sqrt, sin, cos, tan, exp, log, sec, csc, cot # Added new trig functions
+        function_locals = {"sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log, "sec": sec, "csc": csc, "cot": cot} # Added new trig functions
         all_locals.update(function_locals)
         
         sympy_expr = sympify(processed_expr_str, locals=all_locals)

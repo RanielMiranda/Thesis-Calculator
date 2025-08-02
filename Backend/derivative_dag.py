@@ -1,5 +1,6 @@
 # derivative_dag.py
 from sympy import symbols, sympify, latex, Add, Mul, Pow, sin, cos, exp, log, Integer, Symbol, Derivative, Function, sqrt
+from sympy import tan, sec, csc, cot # Import new trigonometric functions
 from sympy.core.function import UndefinedFunction
 from sympy import S # Import for simplification, e.g., S.Zero, S.One
 import time
@@ -134,6 +135,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list):
             _add_step(steps_list, "productRule_sympy_fallback", 
                       f"Using SymPy's diff for complex product step. Result: ${latex(result)}$",
                       parts=[{"latex": result, "explanation_key": "productRule_sympy_fallback"}])
+            
         else: # Only constant terms or no terms (shouldn't happen with SymPy Mul)
             _add_step(steps_list, "constantRule", 
                       f"Derivative of constant product '${latex(expression)}'$ is 0.",
@@ -275,6 +277,60 @@ def _differentiate_recursive_dag(expression, variable, steps_list):
                   f"Cosine Rule result: $-\\sin({latex(u)}) \\cdot ({latex(du_dx)}) = {latex(result)}$",
                   parts=[{"latex": result, "explanation_key": "cosRule_result"}])
 
+    elif isinstance(expression, tan):
+        u = expression.args[0]
+        _add_step(steps_list, "tanRule_start", 
+                  f"Applying Tangent Rule to: ",
+                  parts=[{"latex": expression, "explanation_key": "tanRule_start"}])
+        _add_step(steps_list, "chainRule_for_tan_arg", 
+                  f"Chain rule: need derivative of argument: ",
+                  parts=[{"latex": Derivative(u, variable), "explanation_key": "chainRule_for_tan_arg"}])
+        du_dx = _differentiate_recursive_dag(u, variable, steps_list)
+        result = Mul(Pow(sec(u), 2), du_dx).simplify() 
+        _add_step(steps_list, "tanRule_result", 
+                  f"Tangent Rule result: ",
+                  parts=[{"latex": result, "explanation_key": "tanRule_result"}])
+
+    elif isinstance(expression, sec):
+        u = expression.args[0]
+        _add_step(steps_list, "secRule_start", 
+                  f"Applying Secant Rule to: ",
+                  parts=[{"latex": expression, "explanation_key": "secRule_start"}])
+        _add_step(steps_list, "chainRule_for_sec_arg", 
+                  f"Chain rule: need derivative of argument: ",
+                  parts=[{"latex": Derivative(u, variable), "explanation_key": "chainRule_for_sec_arg"}])
+        du_dx = _differentiate_recursive_dag(u, variable, steps_list)
+        result = Mul(sec(u), tan(u), du_dx).simplify() 
+        _add_step(steps_list, "secRule_result", 
+                  f"Secant Rule result: ",
+                  parts=[{"latex": result, "explanation_key": "secRule_result"}])
+
+    elif isinstance(expression, csc):
+        u = expression.args[0]
+        _add_step(steps_list, "cscRule_start", 
+                  f"Applying Cosecant Rule to: ",
+                  parts=[{"latex": expression, "explanation_key": "cscRule_start"}])
+        _add_step(steps_list, "chainRule_for_csc_arg", 
+                  f"Chain rule: need derivative of argument: ",
+                  parts=[{"latex": Derivative(u, variable), "explanation_key": "chainRule_for_csc_arg"}])
+        du_dx = _differentiate_recursive_dag(u, variable, steps_list)
+        result = Mul(S.NegativeOne, csc(u), cot(u), du_dx).simplify() 
+        _add_step(steps_list, "cscRule_result", 
+                  f"Cosecant Rule result: ",
+                  parts=[{"latex": result, "explanation_key": "cscRule_result"}])
+
+    elif isinstance(expression, cot):
+        u = expression.args[0]
+        _add_step(steps_list, "cotRule_start", 
+                  f"Applying Cotangent Rule to: ",
+                  parts=[{"latex": expression, "explanation_key": "cotRule_start"}])
+        _add_step(steps_list, Derivative(u, variable), "chainRule_for_cot_arg", f"Chain rule: need derivative of argument: ")
+        du_dx = _differentiate_recursive_dag(u, variable, steps_list)
+        result = Mul(S.NegativeOne, Pow(csc(u), 2), du_dx).simplify() 
+        _add_step(steps_list, "cotRule_result", 
+                  f"Cotangent Rule result: ",
+                  parts=[{"latex": result, "explanation_key": "cotRule_result"}])
+
     elif isinstance(expression, exp):
         u = expression.args[0]
         _add_step(steps_list, "expRule_start", 
@@ -304,7 +360,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list):
                   parts=[{"latex": result, "explanation_key": "logRule_result"}])
     
     # Generic function (e.g., f(x), g(x) not defined in SymPy)
-    elif isinstance(expression, Function) and not isinstance(expression, (sin,cos,exp,log,Pow,Add,Mul,Integer,Symbol,Derivative,UndefinedFunction,sqrt)):
+    elif isinstance(expression, Function) and not isinstance(expression, (sin,cos,exp,log,Pow,Add,Mul,Integer,Symbol,Derivative,UndefinedFunction,sqrt,tan,sec,csc,cot)):
         _add_step(steps_list, "generalFunctionRule_start", 
                   f"General function derivative for ${latex(expression)}$",
                   parts=[{"latex": expression, "explanation_key": "generalFunctionRule_start"}])

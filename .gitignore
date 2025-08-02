@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+Backend/__pycache__/derivative_ast.cpython-313.pyc
+Backend/__pycache__/derivative_dag.cpython-313.pyc
+Backend/__pycache__/derivative_ast.cpython-313.pyc
+Backend/__pycache__/derivative_nll.cpython-313.pyc
+Backend/__pycache__/main.cpython-313.pyc
+Backend/__pycache__/derivative_nll.cpython-313.pyc
+Backend/__pycache__/derivative_ast.cpython-313.pyc
+Backend/__pycache__/derivative_dag.cpython-313.pyc
+Backend/__pycache__/derivative_nll.cpython-313.pyc
+Backend/__pycache__/main.cpython-313.pyc

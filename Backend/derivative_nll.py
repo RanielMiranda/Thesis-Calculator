@@ -1,4 +1,6 @@
+# derivative_nll.py
 from sympy import Add, Mul, Pow, sin, cos, tan, exp, log, sec, diff, latex, S, Symbol, simplify
+from sympy import csc, cot # Import new trigonometric functions
 import time
 import tracemalloc
 import logging
@@ -123,6 +125,27 @@ def compute_nll_derivative_recursive(node, var, steps, parent_rule=None):
         du = compute_nll_derivative_recursive(u, var, steps, "tanRule_start")
         result = NLLNode(Mul, [NLLNode(Pow, [NLLNode(sec, [u]), NLLNode(S(2))]), du])
         add_step("tanRule_result", "Result of Tangent Rule:", node_to_sympy(result))
+        return result
+    if node.value == sec:
+        u = node.children[0]
+        add_step("secRule_start", "Applying Secant Rule:", node_to_sympy(node))
+        du = compute_nll_derivative_recursive(u, var, steps, "secRule_start")
+        result = NLLNode(Mul, [NLLNode(sec, [u]), NLLNode(tan, [u]), du])
+        add_step("secRule_result", "Result of Secant Rule:", node_to_sympy(result))
+        return result
+    if node.value == csc:
+        u = node.children[0]
+        add_step("cscRule_start", "Applying Cosecant Rule:", node_to_sympy(node))
+        du = compute_nll_derivative_recursive(u, var, steps, "cscRule_start")
+        result = NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(csc, [u]), NLLNode(cot, [u]), du])
+        add_step("cscRule_result", "Result of Cosecant Rule:", node_to_sympy(result))
+        return result
+    if node.value == cot:
+        u = node.children[0]
+        add_step("cotRule_start", "Applying Cotangent Rule:", node_to_sympy(node))
+        du = compute_nll_derivative_recursive(u, var, steps, "cotRule_start")
+        result = NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(Pow, [NLLNode(csc, [u]), NLLNode(S(2))]), du])
+        add_step("cotRule_result", "Result of Cotangent Rule:", node_to_sympy(result))
         return result
     if node.value == exp:
         u = node.children[0]

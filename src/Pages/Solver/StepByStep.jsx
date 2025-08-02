@@ -2,9 +2,8 @@
 import React, { useState, useRef } from 'react';
 import { MathJax } from "better-react-mathjax";
 
-// **UPDATED** stepExplanation map to match backend rule_keys
+//backend rule keys
 const stepExplanation = {
-    // Backend rule keys from derivative_ast.py
     "initial_expression": "This is the original function we're differentiating.",
     "constantRule": "The derivative of any constant (a number that doesn't change) is zero.",
     "variableRule": "The derivative of a variable with respect to itself is one (e.g., d/dx(x) = 1).",
@@ -41,6 +40,18 @@ const stepExplanation = {
     "cosRule_start": "The derivative of cos(u) is -sin(u)*u'.",
     "cosRule_result": "Result of applying the cosine rule.",
     "chainRule_for_cos_arg": "Applying the chain rule for the argument of the cosine function.",
+    "tanRule_start": "The derivative of tan(u) is sec²(u)*u'.",
+    "tanRule_result": "Result of applying the tangent rule.",
+    "chainRule_for_tan_arg": "Applying the chain rule for the argument of the tangent function.",
+    "secRule_start": "The derivative of sec(u) is sec(u)tan(u)*u'.",
+    "secRule_result": "Result of applying the secant rule.",
+    "chainRule_for_sec_arg": "Applying the chain rule for the argument of the secant function.",
+    "cscRule_start": "The derivative of csc(u) is -csc(u)cot(u)*u'.",
+    "cscRule_result": "Result of applying the cosecant rule.",
+    "chainRule_for_csc_arg": "Applying the chain rule for the argument of the cosecant function.",
+    "cotRule_start": "The derivative of cot(u) is -csc²(u)*u'.",
+    "cotRule_result": "Result of applying the cotangent rule.",
+    "chainRule_for_cot_arg": "Applying the chain rule for the argument of the cotangent function.",
     "expRule_start": "The derivative of e^u is e^u*u'.",
     "expRule_result": "Result of applying the exponential rule.",
     "chainRule_for_exp_arg": "Applying the chain rule for the argument of the exponential function.",
