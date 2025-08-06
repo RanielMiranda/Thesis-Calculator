@@ -4,11 +4,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sympy import symbols, sympify, latex, SympifyError, Symbol as SympySymbol
 from pydantic import BaseModel
+from typing import Optional
 
 # Import the computation functions
-from derivative_ast import compute_derivative_ast 
+from derivative_ast import compute_derivative_ast
 from derivative_dag import compute_derivative_dag
 from derivative_nll import compute_derivative_nll
+# Import the new expression generator
+from generate_expression import generate_random_expression
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -28,6 +31,12 @@ class ExpressionInput(BaseModel):
     variable: str = 'x'
     data_structure: str
 
+# Pydantic model for the new generation endpoint
+class GenerationInput(BaseModel):
+    num_terms: Optional[int] = 3
+    max_depth: Optional[int] = 2
+    variables: Optional[list[str]] = ['x', 'y']
+
 def preprocess_expression(expr_str: str, var_str: str):
     try:
         custom_symbols = {var_str: SympySymbol(var_str)}
@@ -36,8 +45,8 @@ def preprocess_expression(expr_str: str, var_str: str):
 
         processed_expr_str = expr_str.replace('^', '**')
         
-        from sympy import sqrt, sin, cos, tan, exp, log, sec, csc, cot # Added new trig functions
-        function_locals = {"sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log, "sec": sec, "csc": csc, "cot": cot} # Added new trig functions
+        from sympy import sqrt, sin, cos, tan, exp, log, sec, csc, cot
+        function_locals = {"sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log, "sec": sec, "csc": csc, "cot": cot}
         all_locals.update(function_locals)
         
         sympy_expr = sympify(processed_expr_str, locals=all_locals)
@@ -94,6 +103,27 @@ async def solve_derivative(input_data: ExpressionInput):
     except Exception as e:
         logger.error(f"Unexpected error during solve: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An unexpected server error occurred: {str(e)}")
+
+# New endpoint to generate a random expression
+@app.post("/generate")
+async def generate_expression_endpoint(input_data: GenerationInput):
+    logger.debug(f"Received generate request with parameters: {input_data}")
+    try:
+        sympy_vars = [SympySymbol(v) for v in input_data.variables]
+        generated_expr = generate_random_expression(
+            sympy_vars,
+            num_terms=input_data.num_terms,
+            max_depth=input_data.max_depth
+        )
+        response = {
+            "expression_string": str(generated_expr),
+            "expression_latex": latex(generated_expr)
+        }
+        return response
+    except Exception as e:
+        logger.error(f"Error generating expression: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while generating the expression: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn

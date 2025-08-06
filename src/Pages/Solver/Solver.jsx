@@ -1,6 +1,5 @@
-// Solver.jsx
 import React, { useState } from 'react';
-import { MathJaxContext } from "better-react-mathjax"; // MathJax already here
+import { MathJaxContext } from "better-react-mathjax";
 import Navbar from '../../Components/Navbar';
 import Bottomcontent from '../../Components/Bottomcontent';
 import InputField from './InputField';
@@ -10,173 +9,206 @@ import StepByStep from './StepByStep';
 import MeasurementDisplay from './MeasurementDisplay.jsx';
 
 const Solver = () => {
-  const [input, setInput] = useState('');
-  const [derivative, setDerivative] = useState('');
-  const [derivativeSteps, setDerivativeSteps] = useState([]); // This is passed to StepByStep
-  const [executionTime, setExecutionTime] = useState(null);
-  const [peakMemory, setPeakMemory] = useState(null);
-  const [dataStructure, setDataStructure] = useState('');
+    const [input, setInput] = useState('');
+    const [derivative, setDerivative] = useState('');
+    const [derivativeSteps, setDerivativeSteps] = useState([]);
+    const [executionTime, setExecutionTime] = useState(null);
+    const [peakMemory, setPeakMemory] = useState(null);
+    const [dataStructure, setDataStructure] = useState('AST');
+    const [variable, setVariable] = useState('x');
+    const [numTerms, setNumTerms] = useState(3);
+    const [maxDepth, setMaxDepth] = useState(2);
+    const [errorMessage, setErrorMessage] = useState('');
 
-  const handleInputChange = (e) => {
-    setInput(e.target.value);
-  };
+    const handleInputChange = (e) => {
+        setInput(e.target.value);
+    };
 
-  const insertSymbol = (symbol) => {
-    const inputField = document.getElementById('equation-input');
-    const start = inputField.selectionStart;
-    const end = inputField.selectionEnd;
-    const newValue = input.substring(0, start) + symbol + input.substring(end);
-    setInput(newValue);
-    inputField.focus();
-    inputField.setSelectionRange(start + symbol.length, start + symbol.length);
-  };
-  
-  /**
-   * Converts a mathematical string expression into a LaTeX format suitable for MathJax display.
-   * This function attempts to handle common functions, operators, and some nesting.
-   */
-  const formatForMathJax = (text) => {
-    if (!text) return ''; // Handle empty or undefined input
+    const insertSymbol = (symbol) => {
+        const inputField = document.getElementById('equation-input');
+        const start = inputField.selectionStart;
+        const end = inputField.selectionEnd;
+        const newValue = input.substring(0, start) + symbol + input.substring(end);
+        setInput(newValue);
+        inputField.focus();
+        inputField.setSelectionRange(start + symbol.length, start + symbol.length);
+    };
 
-    let formattedText = text;
+    /**
+     * Converts a mathematical string expression into a LaTeX format suitable for MathJax display.
+     * This version includes a more robust regex replacement order.
+     */
+    const formatForMathJax = (text) => {
+        if (!text) return '';
 
-    // 1. Escape LaTeX special characters that might appear in raw input
-    formattedText = formattedText
-      .replace(/\\/g, '\\\\') // Escape backslashes
-      .replace(/%/g, '\\%')   // Escape percent signs
-      .replace(/_/g, '\\_');   // Escape underscores
+        let formattedText = text;
 
-    // 2. Convert common function names to LaTeX commands with braces for arguments
-    // Use non-greedy quantifiers and lookarounds where appropriate for better matching
-    formattedText = formattedText
-      .replace(/sin\((.*?)\)/g, '\\sin{$1}')
-      .replace(/cos\((.*?)\)/g, '\\cos{$1}')
-      .replace(/tan\((.*?)\)/g, '\\tan{$1}')
-      .replace(/log\((.*?)\)/g, '\\log{$1}')
-      .replace(/ln\((.*?)\)/g, '\\ln{$1}')
-      .replace(/exp\((.*?)\)/g, 'e^{$1}') // Convert exp(x) to e^{x}
-      .replace(/abs\((.*?)\)/g, '\\left|$1\\right|') // Absolute value
-      .replace(/sqrt\((.*?)\)/g, '\\sqrt{$1}') // Square root handling
+        // Escape special characters first
+        formattedText = formattedText.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+        
+        // Handle exponents before function names to prevent conflicts
+        formattedText = formattedText.replace(/\*\*/g, '^{');
 
-    // 3. Handle specific operators
-    // Power rule: x^y, x^(y+z). Use braces for exponent if it's more than a single char/digit.
-    // This is order sensitive! Handle complex powers before simple ones.
-    formattedText = formattedText
-      .replace(/\^(\(|\w+)/g, '^{$1}') // x^(y+z) -> x^{y+z}, x^y -> x^{y}
-      .replace(/\)\^{/g, ')^{'); // Fix for (f(x))^{g(x)} when it becomes (f(x))^{\{g(x)\}} due to earlier replacements
+        // Handle functions and their arguments
+        formattedText = formattedText.replace(/sin\((.*?)\)/g, '\\sin{$1}');
+        formattedText = formattedText.replace(/cos\((.*?)\)/g, '\\cos{$1}');
+        formattedText = formattedText.replace(/tan\((.*?)\)/g, '\\tan{$1}');
+        formattedText = formattedText.replace(/log\((.*?)\)/g, '\\log{$1}');
+        formattedText = formattedText.replace(/ln\((.*?)\)/g, '\\ln{$1}');
+        formattedText = formattedText.replace(/exp\((.*?)\)/g, 'e^{$1}');
+        formattedText = formattedText.replace(/abs\((.*?)\)/g, '\\left|$1\\right|');
+        formattedText = formattedText.replace(/sqrt\((.*?)\)/g, '\\sqrt{$1}');
+        
+        // Handle general exponent notation
+        formattedText = formattedText.replace(/\^(\(|\w+)/g, '^{$1}');
+        formattedText = formattedText.replace(/\)\^{/g, ')^{');
 
-    // Division: Prefer \frac for clarity, trying to match balanced parentheses for numerator/denominator
-    // This is the trickiest part for regex with arbitrary nesting.
-    // A simplified approach that works for common cases:
-    formattedText = formattedText
-      .replace(/([^()]+)\/([^()]+)/g, '\\frac{$1}{$2}'); // simple a/b
-    // To handle (A+B)/(C+D), (cos(x^2))/sin(x) etc. regex needs to be more complex (and sometimes impossible reliably without parsing).
-    // The following is a very basic attempt to handle expressions in parentheses before/after a slash.
-    // For `(cos(x^2))/sin(x)`:
-    formattedText = formattedText.replace(/\((.*?)\)\s*\/\s*(.*)/g, '\\frac{$1}{$2}'); // (numerator)/denominator
-    formattedText = formattedText.replace(/(.*)\s*\/\s*\((.*?)\)/g, '\\frac{$1}{$2}'); // numerator/(denominator)
+        // Handle fractions
+        formattedText = formattedText.replace(/([^()]+)\/([^()]+)/g, '\\frac{$1}{$2}');
+        formattedText = formattedText.replace(/\((.*?)\)\s*\/\s*(.*)/g, '\\frac{$1}{$2}');
+        formattedText = formattedText.replace(/(.*)\s*\/\s*\((.*?)\)/g, '\\frac{$1}{$2}');
+        
+        // Replace other operators
+        formattedText = formattedText.replace(/\*/g, '\\cdot ');
 
-    // Multiplication: a*b -> a \cdot b
-    formattedText = formattedText.replace(/\*/g, '\\cdot ');
+        // Handle constants
+        formattedText = formattedText.replace(/pi/g, '\\pi');
 
-    // 4. Constants
-    formattedText = formattedText.replace(/pi/g, '\\pi');
+        // Close any remaining open braces from exponent handling
+        formattedText = formattedText.replace(/\^{/g, '^{(');
+        formattedText = formattedText.replace(/\)/g, ')}');
+        
+        return formattedText;
+    };
 
-    return formattedText;
-  };
+    const solveExpression = async () => {
+        setErrorMessage('');
+        if (!input.trim()) {
+            setErrorMessage("Please enter a function to solve.");
+            return;
+        }
 
-  const solveExpression = async () => {
-    if (!input.trim()) {
-      alert("Please enter a function to solve.");
-      return;
-    }
-    const parsedInput = input;
-    
-    const dataStructureElement = document.querySelector('select[name="option"]');
-    if (!dataStructureElement) {
-        alert("Could not find data structure selector. Please ensure it's rendered.");
-        return;
-    }
-    const currentDataStructure = dataStructureElement.value;
-    setDataStructure(currentDataStructure);
+        try {
+            const solveResponse = await fetch("http://127.00.1:8000/solve", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    expression: input,
+                    data_structure: dataStructure,
+                    variable: variable
+                }),
+            });
 
-    console.log("Sending to backend:", { expression: parsedInput, data_structure: currentDataStructure });
+            const solveData = await solveResponse.json();
 
-    try {
-      const solveResponse = await fetch("http://127.0.0.1:8000/solve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expression: parsedInput, data_structure: currentDataStructure }),
-      });
+            if (!solveResponse.ok) {
+                console.error("Solver Error Response:", solveData);
+                setErrorMessage(solveData.detail || "Failed to fetch derivative from backend.");
+                return;
+            }
+            
+            console.log("Received from backend:", solveData);
+            setDerivative(solveData.derivative_latex);
+            setDerivativeSteps(solveData.steps || []);
+            setExecutionTime(solveData.execution_time_ms);
+            setPeakMemory(solveData.peak_memory_bytes);
 
-      const solveData = await solveResponse.json(); // Try to parse JSON regardless of ok status first for error messages
+        } catch (error) {
+            console.error("Error in solveExpression:", error);
+            setErrorMessage(`Error processing the expression: ${error.message}`);
+            setDerivative('');
+            setDerivativeSteps([]);
+            setExecutionTime(null);
+            setPeakMemory(null);
+        }
+    };
 
-      if (!solveResponse.ok) {
-        console.error("Solver Error Response:", solveData);
-        throw new Error(solveData.detail || "Failed to fetch derivative from backend.");
-      }
-      
-      console.log("Received from backend:", solveData);
-      setDerivative(solveData.derivative_latex); // Expecting LaTeX string
-      setDerivativeSteps(solveData.steps || []); // Expecting an array of step objects
-      setExecutionTime(solveData.execution_time_ms);
-      setPeakMemory(solveData.peak_memory_bytes);
+    const generateExpression = async () => {
+        setErrorMessage('');
+        try {
+            const generateResponse = await fetch("http://127.0.0.1:8000/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    num_terms: numTerms,
+                    max_depth: maxDepth,
+                    variables: [variable]
+                }),
+            });
 
-    } catch (error) {
-      console.error("Error in solveExpression:", error);
-      alert(`Error processing the expression: ${error.message}`);
-      setDerivative(''); // Clear previous results on error
-      setDerivativeSteps([]); // Clear previous steps on error
-      setExecutionTime(null);
-      setPeakMemory(null);
-    }
-  };
+            const generateData = await generateResponse.json();
 
-  const clearInput = () => {
-    setInput('');
-      setDerivative(''); // Clear previous results on error
-      setDerivativeSteps([]); // Clear previous steps on error
-      setExecutionTime(null);
-      setPeakMemory(null);    
-  }
-  const generateExpression = () => { /* ... */ }; // Your existing function
+            if (!generateResponse.ok) {
+                console.error("Generate Error Response:", generateData);
+                setErrorMessage(generateData.detail || "Failed to generate expression.");
+                return;
+            }
 
-  return (
-    <MathJaxContext>
-      <div className="bg-bgcolor min-h-screen w-full flex flex-col">
-        <Navbar />
-        <h1 className="font-bold text-2xl text-dark text-center mt-10 mb-4">Derivative Solver</h1>
-        
-        <div className="flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto">
-          <div className="w-full md:w-1/3">
-            <InputField 
-              input={input}
-              handleInputChange={handleInputChange}
-              setInput={setInput} // Make sure setInput is passed if InputField uses it directly
-              solveExpression={solveExpression}
-              insertSymbol={insertSymbol}
-              formatForMathJax={formatForMathJax} // Pass if InputField uses it for live preview
-              clearInput={clearInput}
-            />
-            <SolverConfig /> {/* Ensure this doesn't conflict with how data_structure is read */}
-          </div>
+            console.log("Generated expression:", generateData);
+            setInput(generateData.expression_string);
+            setDerivative('');
+            setDerivativeSteps([]);
+            setExecutionTime(null);
+            setPeakMemory(null);
 
-          <div className="w-full md:w-2/3">
-            <SolutionDisplay 
-              derivative={derivative} // Already expects LaTeX
-            />
-          <div>
-            <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
-          </div>
-            {/* Pass the dynamic steps to StepByStep */}
-            <StepByStep steps={derivativeSteps} /> 
-          </div>
-        </div>
+        } catch (error) {
+            console.error("Error in generateExpression:", error);
+            setErrorMessage(`Error generating expression: ${error.message}`);
+        }
+    };
 
-        <Bottomcontent />
-      </div>
-    </MathJaxContext>
-  );
+    const clearInput = () => {
+        setInput('');
+        setDerivative('');
+        setDerivativeSteps([]);
+        setExecutionTime(null);
+        setPeakMemory(null);
+        setErrorMessage('');
+    };
+
+    return (
+        <MathJaxContext>
+            <div className="bg-bgcolor min-h-screen w-full flex flex-col">
+                <Navbar />
+                <h1 className="font-bold text-2xl text-dark text-center mt-10 mb-4">Derivative Solver</h1>
+                
+                <div className="flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto">
+                    <div className="w-full md:w-1/3">
+                        <InputField 
+                            input={input}
+                            handleInputChange={handleInputChange}
+                            setInput={setInput}
+                            solveExpression={solveExpression}
+                            insertSymbol={insertSymbol}
+                            formatForMathJax={formatForMathJax}
+                            clearInput={clearInput}
+                            generateExpression={generateExpression}
+                        />
+                        <SolverConfig 
+                            dataStructure={dataStructure} 
+                            setDataStructure={setDataStructure} 
+                            numTerms={numTerms}
+                            setNumTerms={setNumTerms}
+                            maxDepth={maxDepth}
+                            setMaxDepth={setMaxDepth}
+                            variable={variable}
+                            setVariable={setVariable}
+                        />
+                    </div>
+
+                    <div className="w-full md:w-2/3">
+                        <SolutionDisplay derivative={derivative} error={errorMessage} />
+                        <div>
+                            <MeasurementDisplay dataStructure={dataStructure} executionTime={executionTime} peakMemory={peakMemory} />
+                        </div>
+                        <StepByStep steps={derivativeSteps} />
+                    </div>
+                </div>
+
+                <Bottomcontent />
+            </div>
+        </MathJaxContext>
+    );
 };
 
 export default Solver;
