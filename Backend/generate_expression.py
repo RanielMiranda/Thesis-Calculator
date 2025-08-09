@@ -1,5 +1,5 @@
 import random
-from sympy import symbols, S, sin, cos, tan, exp, log, Add, Mul, Pow
+from sympy import symbols, S, sin, cos, tan, exp, Add, Mul, Pow, sec, csc, cot
 
 def generate_random_expression(variables, num_terms=3, max_depth=2):
     """
@@ -13,7 +13,7 @@ def generate_random_expression(variables, num_terms=3, max_depth=2):
     """
     # Define available functions and operators
     operators = [Add, Mul, Pow]
-    functions = [sin, cos, exp, log]
+    functions = [sin, cos, exp, tan, sec, csc, cot]
     
     # Simple leaf nodes (variables or constants)
     def create_leaf():

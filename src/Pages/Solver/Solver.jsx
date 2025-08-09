@@ -34,22 +34,19 @@ const Solver = () => {
         inputField.setSelectionRange(start + symbol.length, start + symbol.length);
     };
 
-    /**
-     * Converts a mathematical string expression into a LaTeX format suitable for MathJax display.
-     * This version includes a more robust regex replacement order.
-     */
     const formatForMathJax = (text) => {
         if (!text) return '';
 
         let formattedText = text;
 
-        // Escape special characters first
+        // 1. Escape LaTeX special characters (backslashes first)
         formattedText = formattedText.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-        
-        // Handle exponents before function names to prevent conflicts
+
+        // 2. Handle double-asterisk for exponents (Python-style)
         formattedText = formattedText.replace(/\*\*/g, '^{');
 
-        // Handle functions and their arguments
+        // 3. Handle functions and their arguments - these should generally come before general exponent/fraction handling
+        // Ensures arguments are wrapped in {}
         formattedText = formattedText.replace(/sin\((.*?)\)/g, '\\sin{$1}');
         formattedText = formattedText.replace(/cos\((.*?)\)/g, '\\cos{$1}');
         formattedText = formattedText.replace(/tan\((.*?)\)/g, '\\tan{$1}');
@@ -59,25 +56,25 @@ const Solver = () => {
         formattedText = formattedText.replace(/abs\((.*?)\)/g, '\\left|$1\\right|');
         formattedText = formattedText.replace(/sqrt\((.*?)\)/g, '\\sqrt{$1}');
         
-        // Handle general exponent notation
-        formattedText = formattedText.replace(/\^(\(|\w+)/g, '^{$1}');
-        formattedText = formattedText.replace(/\)\^{/g, ')^{');
+        // 4. Handle general single-caret exponents (x^2, x^(a+b))
+        // This regex looks for '^' followed by a single alphanumeric character or a parenthesized expression.
+        formattedText = formattedText.replace(/\^([a-zA-Z0-9_])(?!\w)/g, '^{$1}'); // For single char like x^2
+        formattedText = formattedText.replace(/\^\((.*?)\)/g, '^{$1}'); // For x^(expr)
 
-        // Handle fractions
-        formattedText = formattedText.replace(/([^()]+)\/([^()]+)/g, '\\frac{$1}{$2}');
-        formattedText = formattedText.replace(/\((.*?)\)\s*\/\s*(.*)/g, '\\frac{$1}{$2}');
-        formattedText = formattedText.replace(/(.*)\s*\/\s*\((.*?)\)/g, '\\frac{$1}{$2}');
-        
-        // Replace other operators
+        // 5. Handle fractions (u/v)
+        // This attempts to capture either simple terms (words/numbers) or parenthesized expressions
+        // and format them as \frac{}{}
+        formattedText = formattedText.replace(/(\w+|\([^)]+\))\s*\/\s*(\w+|\([^)]+\))/g, '\\frac{$1}{$2}');
+        // For cases like "num/(den)" or "(num)/den" that the above might miss if only one side is parenthesized
+        formattedText = formattedText.replace(/(.*?)\s*\/\s*\((.*?)\)/g, '\\frac{$1}{$2}'); // Handles (num)/den
+        formattedText = formattedText.replace(/\((.*?)\)\s*\/\s*(.*)/g, '\\frac{$1}{$2}'); // Handles num/(den)
+
+        // 6. Replace other operators
         formattedText = formattedText.replace(/\*/g, '\\cdot ');
 
-        // Handle constants
+        // 7. Handle constants
         formattedText = formattedText.replace(/pi/g, '\\pi');
 
-        // Close any remaining open braces from exponent handling
-        formattedText = formattedText.replace(/\^{/g, '^{(');
-        formattedText = formattedText.replace(/\)/g, ')}');
-        
         return formattedText;
     };
 
@@ -122,10 +119,29 @@ const Solver = () => {
             setPeakMemory(null);
         }
     };
+    
+    const convertPythonExpToCaret = (expression) => {
+        let converted = expression.replace(/exp/g, 'e^'); // Convert 'exp' to 'e^'
+
+
+        converted = converted.replace(
+            /([a-zA-Z0-9_.]+|\([^)]+\))\*\*([a-zA-Z0-9_.]+|\w+\(.*?\)|\(.*?\)|\S+)/g,
+            (match, base, exponent) => {
+                if ((exponent.startsWith('(') && exponent.endsWith(')')) || exponent.match(/^[a-zA-Z0-9_.]+$/)) {
+                    return `${base}^${exponent}`;
+                } 
+                else {
+                    return `${base}^(${exponent})`;
+                }
+            }
+        );
+        return converted;
+    };
 
     const generateExpression = async () => {
         setErrorMessage('');
         try {
+            // Note: Replace with your actual backend URL if different
             const generateResponse = await fetch("http://127.0.0.1:8000/generate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -145,7 +161,8 @@ const Solver = () => {
             }
 
             console.log("Generated expression:", generateData);
-            setInput(generateData.expression_string);
+            const convertedExpression = convertPythonExpToCaret(generateData.expression_string);
+            setInput(convertedExpression); 
             setDerivative('');
             setDerivativeSteps([]);
             setExecutionTime(null);
@@ -153,7 +170,7 @@ const Solver = () => {
 
         } catch (error) {
             console.error("Error in generateExpression:", error);
-            setErrorMessage(`Error generating expression: ${error.message}`);
+            setErrorMessage(`Error generating expression: ${error.message}. Make sure your backend server is running and accessible.`);
         }
     };
 
