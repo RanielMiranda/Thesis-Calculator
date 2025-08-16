@@ -55,22 +55,22 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
 
     # Base cases
     if not expression.has(variable):
-        _add_step(steps_list, S.Zero, "constantRule", f"The derivative of { _cached_latex(expression) } is 0.",
+        _add_step(steps_list, S.Zero, "constantRule", f"Derivative of a constant is: ",
                   prefix="= ")
         cache[key] = S.Zero
         return S.Zero
 
     if expression == variable:
-        _add_step(steps_list, S.One, "variableRule", f"The derivative of { _cached_latex(variable) } with respect to itself is 1.")
+        _add_step(steps_list, S.One, "variableRule", f"Derivative of { _cached_latex(variable) } with respect to itself is: ")
         cache[key] = S.One
         return S.One
 
     # Sum
     if isinstance(expression, Add):
-        _add_step(steps_list, expression, "sumRule_start", "Applying Sum Rule:")
+        _add_step(steps_list, expression, "sumRule_start", "Applying Sum Rule to:")
         d_terms = [ _differentiate_recursive_dag(arg, variable, steps_list, cache) for arg in expression.args ]
         result = Add(*d_terms)
-        _add_step(steps_list, result, "sumRule_result", f"Sum of derivatives: {_cached_latex(result)}")
+        _add_step(steps_list, result, "sumRule_result", f"Sum of derivatives: ")
         cache[key] = result
         return result
 
@@ -82,16 +82,16 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         if const_terms and non_const_terms:
             c = Mul(*const_terms)
             f = Mul(*non_const_terms)
-            _add_step(steps_list, expression, "constantMultipleRule_start", f"Applying Constant Multiple Rule:")
+            _add_step(steps_list, expression, "constantMultipleRule_start", f"Applying Constant Multiple Rule to:")
             df = _differentiate_recursive_dag(f, variable, steps_list, cache)
             result = Mul(c, df)
-            _add_step(steps_list, result, "constantMultipleRule_result", f"Result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "constantMultipleRule_result", f"Result of Constant Multiple Rule to: ")
             cache[key] = result
             return result
 
         if len(non_const_terms) == 2 and not const_terms:
             u, v = non_const_terms
-            _add_step(steps_list, expression, "productRule_start", f"Applying Product Rule to: {_cached_latex(expression)}")
+            _add_step(steps_list, expression, "productRule_start", f"Applying Product Rule to: ")
             _add_step(steps_list, f"\\frac{{d}}{{d{_cached_latex(variable)}}}({_cached_latex(v)})", "productRule_dv_dx_expr",
                       "Derivative of second term")
             dv = _differentiate_recursive_dag(v, variable, steps_list, cache)
@@ -99,7 +99,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
                       "Derivative of first term")
             du = _differentiate_recursive_dag(u, variable, steps_list, cache)
             result = Add(Mul(u, dv), Mul(v, du))
-            _add_step(steps_list, result, "productRule_result", f"Product Rule result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "productRule_result", f"Product Rule result: ")
             cache[key] = result
             return result
 
@@ -112,20 +112,20 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
                     da = _differentiate_recursive_dag(a, variable, steps_list, cache)
                     sum_terms.append(da / a)
             result = Mul(P, Add(*sum_terms))
-            _add_step(steps_list, result, "productRule_many_terms", f"Optimized product result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "productRule_many_terms", f"Optimized product result:")
             cache[key] = result
             return result
 
         # constant case
-        _add_step(steps_list, S.Zero, "constantRule", f"Derivative of constant product '{_cached_latex(expression)}' is 0.")
+        _add_step(steps_list, S.Zero, "constantRule", f"Derivative of a constant product is: ")
         cache[key] = S.Zero
         return S.Zero
 
     # Quotient detection (u * v**(-1)) -> fallback to SymPy
     if isinstance(expression, Mul) and any(isinstance(a, Pow) and a.args[1].is_negative for a in expression.args):
-        _add_step(steps_list, expression, "quotientRule_start", f"Applying Quotient Rule to: {_cached_latex(expression)}")
+        _add_step(steps_list, expression, "quotientRule_start", f"Applying Quotient Rule to: ")
         result = _diff_value_cached(expression, variable)
-        _add_step(steps_list, result, "quotientRule_result", f"Quotient fallback: {_cached_latex(result)}")
+        _add_step(steps_list, result, "quotientRule_result", f"Quotient fallback: ")
         _differentiation_cache[key] = result
         cache[key] = result
         return result
@@ -133,29 +133,29 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
     # Power
     if isinstance(expression, Pow):
         base, exponent = expression.args[0], expression.args[1]
-        _add_step(steps_list, expression, "powerRule_start", "Applying Power Rule:")
+        _add_step(steps_list, expression, "powerRule_start", "Applying Power Rule to:")
         if exponent == S.Half:
             # sqrt case
             dbase = _differentiate_recursive_dag(base, variable, steps_list, cache)
             result = Mul(S.Half, Pow(base, S.NegativeHalf), dbase)
-            _add_step(steps_list, result, "sqrtRule_result", f"Square root result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "sqrtRule_result", f"Square root Rule result: ")
             cache[key] = result
             return result
         if not exponent.has(variable):
             dbase = _differentiate_recursive_dag(base, variable, steps_list, cache)
             result = Mul(exponent, Pow(base, exponent - 1), dbase)
-            _add_step(steps_list, result, "powerRule_u_n_result", f"Power result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "powerRule_u_n_result", f"Power Rule result: ")
             cache[key] = result
             return result
         if not base.has(variable) and exponent.has(variable):
             du = _differentiate_recursive_dag(exponent, variable, steps_list, cache)
             result = Mul(expression, log(base), du)
-            _add_step(steps_list, result, "expRule_a_u_result", f"Exponential a^u result: {_cached_latex(result)}")
+            _add_step(steps_list, result, "expRule_a_u_result", f"Exponential rule result: ")
             cache[key] = result
             return result
         # general fallback
         result = _diff_value_cached(expression, variable)
-        _add_step(steps_list, result, "powerRule_general_sympy_fallback", f"General power fallback: {_cached_latex(result)}")
+        _add_step(steps_list, result, "powerRule_general_sympy_fallback", f"General power fallback: ")
         cache[key] = result
         return result
 
@@ -165,7 +165,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "sinRule_start", "Applying Sine Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(cos(u), du)
-        _add_step(steps_list, result, "sinRule_result", f"Sine Rule result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "sinRule_result", f"Sine Rule result: ")
         cache[key] = result
         return result
 
@@ -174,7 +174,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "cosRule_start", "Applying Cosine Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(S.NegativeOne, sin(u), du)
-        _add_step(steps_list, result, "cosRule_result", f"Cosine result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "cosRule_result", f"Cosine Rule result: ")
         cache[key] = result
         return result
 
@@ -183,7 +183,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "tanRule_start", "Applying Tangent Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(Pow(sec(u), 2), du)
-        _add_step(steps_list, result, "tanRule_result", f"Tangent result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "tanRule_result", f"Tangent Rule result: ")
         cache[key] = result
         return result
 
@@ -192,7 +192,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "secRule_start", "Applying Secant Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(sec(u), tan(u), du)
-        _add_step(steps_list, result, "secRule_result", f"Secant result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "secRule_result", f"Secant Rule result: ")
         cache[key] = result
         return result
 
@@ -201,7 +201,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "cscRule_start", "Applying Cosecant Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(S.NegativeOne, csc(u), cot(u), du)
-        _add_step(steps_list, result, "cscRule_result", f"Cosecant result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "cscRule_result", f"Cosecant Rule result: ")
         cache[key] = result
         return result
 
@@ -210,7 +210,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "cotRule_start", "Applying Cotangent Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
-        _add_step(steps_list, result, "cotRule_result", f"Cotangent result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "cotRule_result", f"Cotangent Rule result: ")
         cache[key] = result
         return result
 
@@ -219,7 +219,7 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "expRule_start", "Applying Exponential Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(exp(u), du)
-        _add_step(steps_list, result, "expRule_result", f"Exponential result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "expRule_result", f"Exponential Rule result: ")
         cache[key] = result
         return result
 
@@ -228,14 +228,14 @@ def _differentiate_recursive_dag(expression, variable, steps_list, cache):
         _add_step(steps_list, expression, "logRule_start", "Applying Log Rule to:")
         du = _differentiate_recursive_dag(u, variable, steps_list, cache)
         result = Mul(Pow(u, -1), du)
-        _add_step(steps_list, result, "logRule_result", f"Log result: {_cached_latex(result)}")
+        _add_step(steps_list, result, "logRule_result", f"Log Rule result: ")
         cache[key] = result
         return result
 
     # Fallback: ask SymPy
-    _add_step(steps_list, expression, "unknownRule", f"No DAG rule matched for: {_cached_latex(expression)}. Using SymPy's diff as fallback.")
+    _add_step(steps_list, expression, "unknownRule", f"No DAG rule matched for this. Using SymPy's diff as fallback.")
     result = _diff_value_cached(expression, variable)
-    _add_step(steps_list, result, "unknownRule_sympy_fallback", f"Fallback result: {_cached_latex(result)}")
+    _add_step(steps_list, result, "unknownRule_sympy_fallback", f"Fallback result: ")
     cache[key] = result
     return result
 

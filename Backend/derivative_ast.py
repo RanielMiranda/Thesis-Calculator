@@ -74,23 +74,23 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
             # Base cases
             if not expr.has(variable_symbol):
                 _add_step(steps, S.Zero, "constantRule",
-                          f"Derivative of constant '{_cached_latex(expr)}' is 0.")
+                          f"Derivative of a constant is: ")
                 local_cache[key] = S.Zero
                 return S.Zero
 
             if expr == variable_symbol:
                 _add_step(steps, S.One, "variableRule",
-                          f"Derivative of '{_cached_latex(variable_symbol)}' with respect to itself is 1.")
+                          f"Derivative of {_cached_latex(variable_symbol)} with respect to itself is: ")
                 local_cache[key] = S.One
                 return S.One
 
             # Sum
             if isinstance(expr, Add):
-                _add_step(steps, expr, "sumRule_start", "Applying Sum Rule:")
+                _add_step(steps, expr, "sumRule_start", "Applying Sum Rule to:")
                 d_terms = [ _rec(arg) for arg in expr.args ]
                 result = Add(*d_terms)
                 local_cache[key] = result
-                _add_step(steps, result, "sumRule_result", f"Sum of derivatives: {_cached_latex(result)}")
+                _add_step(steps, result, "sumRule_result", f"Sum of derivatives:")
                 return result
 
             # Product (incl. constant multiple)
@@ -103,18 +103,18 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
                     c = Mul(*const_terms)
                     f = Mul(*non_const_terms)
                     _add_step(steps, expr, "constantMultipleRule_start",
-                              f"Applying Constant Multiple Rule to: {_cached_latex(c)} * {_cached_latex(f)}")
+                              f"Applying Constant Multiple Rule to: ")
                     df = _rec(f)
                     result = Mul(c, df)
                     local_cache[key] = result
                     _add_step(steps, result, "constantMultipleRule_result",
-                              f"Result: {_cached_latex(c)} * ({_cached_latex(df)}) = {_cached_latex(result)}")
+                              f"Result of Constant Multiple Rule: ")
                     return result
 
                 # standard product rule for two factors
                 if len(non_const_terms) == 2 and not const_terms:
                     u, v = non_const_terms
-                    _add_step(steps, expr, "productRule_start", f"Applying Product Rule to: {_cached_latex(u)} * {_cached_latex(v)}")
+                    _add_step(steps, expr, "productRule_start", f"Applying Product Rule to: ")
                     # show d/dx(...) display without constructing Derivative objects
                     _add_step(steps, f"\\frac{{d}}{{d{_cached_latex(variable_symbol)}}}({_cached_latex(v)})",
                               "productRule_dv_dx_expr", f"Derivative of second term")
@@ -127,7 +127,7 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
                     result = Add(term1, term2)
                     local_cache[key] = result
                     _add_step(steps, result, "productRule_result",
-                              f"Product Rule result: ({_cached_latex(u)})({_cached_latex(dv)}) + ({_cached_latex(v)})({_cached_latex(du)}) = {_cached_latex(result)}")
+                              f"Product Rule result: ")
                     return result
 
                 # many-term product: use efficient product-sum trick
@@ -144,47 +144,47 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
                     result = Mul(P, Add(*sum_parts))
                     local_cache[key] = result
                     _add_step(steps, result, "productRule_many_terms",
-                              f"Product rule (many factors) optimized: {_cached_latex(result)}")
+                              f"Product rule (many factors) optimized: ")
                     return result
 
                 # else: constant product -> 0
                 _add_step(steps, S.Zero, "constantRule",
-                          f"Derivative of constant product '{_cached_latex(expr)}' is 0.")
+                          f"Derivative of constant product is: ")
                 local_cache[key] = S.Zero
                 return S.Zero
 
             # Quotient handling: SymPy usually represents u/v as u * v**(-1)
             if isinstance(expr, Mul) and any(isinstance(a, Pow) and a.args[1].is_negative for a in expr.args):
                 # fallback to SymPy solution (cached)
-                _add_step(steps, expr, "quotientRule_start", f"Applying Quotient Rule to: {_cached_latex(expr)}")
+                _add_step(steps, expr, "quotientRule_start", f"Applying Quotient Rule to: ")
                 result = _diff_value_cached(expr, variable_symbol)
                 local_cache[key] = result
-                _add_step(steps, result, "quotientRule_result", f"Using SymPy for quotient: {_cached_latex(result)}")
+                _add_step(steps, result, "quotientRule_result", f"Using SymPy for quotient: ")
                 return result
 
             # Power
             if isinstance(expr, Pow):
                 base, exponent = expr.args[0], expr.args[1]
-                _add_step(steps, expr, "powerRule_start", "Applying Power Rule:")
+                _add_step(steps, expr, "powerRule_start", "Applying Power Rule to:")
                 if not exponent.has(variable_symbol):
                     # u^n
                     dbase = _rec(base)
                     result = Mul(exponent, Pow(base, exponent - 1), dbase)
                     local_cache[key] = result
-                    _add_step(steps, result, "powerRule_u_n_result", f"Power rule result: {_cached_latex(result)}")
+                    _add_step(steps, result, "powerRule_u_n_result", f"Power rule result: ")
                     return result
                 if not base.has(variable_symbol) and exponent.has(variable_symbol):
                     # a^u
                     du = _rec(exponent)
                     result = Mul(expr, log(base), du)
                     local_cache[key] = result
-                    _add_step(steps, result, "expRule_a_u_result", f"Exponential rule result: {_cached_latex(result)}")
+                    _add_step(steps, result, "expRule_a_u_result", f"Exponential rule result: ")
                     return result
                 # general case: fallback
                 result = _diff_value_cached(expr, variable_symbol)
                 local_cache[key] = result
                 _add_step(steps, result, "powerRule_general_sympy_fallback",
-                          f"General power fallback: {_cached_latex(result)}")
+                          f"General power fallback: ")
                 return result
 
             # elementary functions (sin, cos, tan, sec, csc, cot, exp, log)
@@ -192,81 +192,81 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
             # But SymPy's sin, cos are callable classes, so the earlier style still works.
             if isinstance(expr, sin):
                 u = expr.args[0]
-                _add_step(steps, expr, "sinRule_start", "Applying Sine Rule:")
+                _add_step(steps, expr, "sinRule_start", "Applying Sine Rule to:")
                 du = _rec(u)
                 result = Mul(cos(u), du)
                 local_cache[key] = result
-                _add_step(steps, result, "sinRule_result", f"Sine Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "sinRule_result", f"Sine Rule result:")
                 return result
 
             if isinstance(expr, cos):
                 u = expr.args[0]
-                _add_step(steps, expr, "cosRule_start", "Applying Cosine Rule:")
+                _add_step(steps, expr, "cosRule_start", "Applying Cosine Rule to:")
                 du = _rec(u)
                 result = Mul(S.NegativeOne, sin(u), du)
                 local_cache[key] = result
-                _add_step(steps, result, "cosRule_result", f"Cosine Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "cosRule_result", f"Cosine Rule result:")
                 return result
 
             if isinstance(expr, tan):
                 u = expr.args[0]
-                _add_step(steps, expr, "tanRule_start", "Applying Tangent Rule:")
+                _add_step(steps, expr, "tanRule_start", "Applying Tangent Rule to:")
                 du = _rec(u)
                 result = Mul(Pow(sec(u), 2), du)
                 local_cache[key] = result
-                _add_step(steps, result, "tanRule_result", f"Tangent Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "tanRule_result", f"Tangent Rule result:")
                 return result
 
             if isinstance(expr, sec):
                 u = expr.args[0]
-                _add_step(steps, expr, "secRule_start", "Applying Secant Rule:")
+                _add_step(steps, expr, "secRule_start", "Applying Secant Rule to:")
                 du = _rec(u)
                 result = Mul(sec(u), tan(u), du)
                 local_cache[key] = result
-                _add_step(steps, result, "secRule_result", f"Secant Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "secRule_result", f"Secant Rule result:")
                 return result
 
             if isinstance(expr, csc):
                 u = expr.args[0]
-                _add_step(steps, expr, "cscRule_start", "Applying Cosecant Rule:")
+                _add_step(steps, expr, "cscRule_start", "Applying Cosecant Rule to:")
                 du = _rec(u)
                 result = Mul(S.NegativeOne, csc(u), cot(u), du)
                 local_cache[key] = result
-                _add_step(steps, result, "cscRule_result", f"Cosecant Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "cscRule_result", f"Cosecant Rule result:")
                 return result
 
             if isinstance(expr, cot):
                 u = expr.args[0]
-                _add_step(steps, expr, "cotRule_start", "Applying Cotangent Rule:")
+                _add_step(steps, expr, "cotRule_start", "Applying Cotangent Rule to:")
                 du = _rec(u)
                 result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
                 local_cache[key] = result
-                _add_step(steps, result, "cotRule_result", f"Cotangent Rule result: {_cached_latex(result)}")
+                _add_step(steps, result, "cotRule_result", f"Cotangent Rule result:")
                 return result
 
             if isinstance(expr, exp):
                 u = expr.args[0]
-                _add_step(steps, expr, "expRule_start", "Applying Exponential Rule:")
+                _add_step(steps, expr, "expRule_start", "Applying Exponential Rule to:")
                 du = _rec(u)
                 result = Mul(exp(u), du)
                 local_cache[key] = result
-                _add_step(steps, result, "expRule_result", f"Exponential result: {_cached_latex(result)}")
+                _add_step(steps, result, "expRule_result", f"Exponential result: ")
                 return result
 
             if isinstance(expr, log):
                 u = expr.args[0]
-                _add_step(steps, expr, "logRule_start", "Applying Log Rule:")
+                _add_step(steps, expr, "logRule_start", "Applying Log Rule to:")
                 du = _rec(u)
                 result = Mul(Pow(u, -1), du)
                 local_cache[key] = result
-                _add_step(steps, result, "logRule_result", f"Log result: {_cached_latex(result)}")
+                _add_step(steps, result, "logRule_result", f"Log result: ")
                 return result
 
             # general function fallback
-            _add_step(steps, expr, "unknownRule", f"No specific AST rule matched for: {_cached_latex(expr)}. Using SymPy's diff as fallback.")
+            _add_step(steps, expr, "unknownRule", f"No specific AST rule matched for: . Using SymPy's diff as fallback.")
             result = _diff_value_cached(expr, variable_symbol)
             local_cache[key] = result
-            _add_step(steps, result, "unknownRule_sympy_fallback", f"Fallback result: {_cached_latex(result)}")
+            _add_step(steps, result, "unknownRule_sympy_fallback", f"Fallback result: ")
             return result
 
         differentiated_expr = _rec(sympy_expr)
