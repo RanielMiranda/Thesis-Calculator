@@ -1,18 +1,31 @@
-import React from 'react';
-
-const MeasurementDisplay = ({ results, isLoading }) => {
+const MeasurementDisplay = ({ results, isLoading, progress }) => {
     const dataStructures = ['AST', 'DAG', 'NLL'];
+    const totalSteps = dataStructures.length * 15; 
     
     if (isLoading) {
+        const progressPercentage = (progress / totalSteps) * 100;
+        const progressBarWidth = `${progressPercentage}%`;
+
         return (
-             <div className="mt-6 p-6 bg-light rounded-lg shadow-lg text-center">
+            <div className="mt-6 p-6 bg-light rounded-lg shadow-lg text-center">
                 <h3 className="text-primary mb-4 font-bold text-lg">Performance Benchmark</h3>
-                <p className="text-dark">Running benchmarks, please wait...</p>
-             </div>
+                <p className="text-dark mb-4">Running benchmarks, please wait...</p>
+                
+                <div className="w-full bg-secondary rounded-full h-4 relative overflow-hidden">
+                    <div 
+                        className="bg-primary h-4 rounded-full transition-width duration-500 ease-out" 
+                        style={{ width: progressBarWidth }}
+                    ></div>
+                    <span 
+                        className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-dark"
+                    >
+                        {progress}/{totalSteps}
+                    </span>
+                </div>
+            </div>
         )
     }
 
-    // Return null or a placeholder if there are no results to display yet
     if (!results.AST.avgTime) {
         return (
             <div className="mt-6 p-6 bg-light rounded-lg shadow-lg text-center">
@@ -22,11 +35,10 @@ const MeasurementDisplay = ({ results, isLoading }) => {
        );
     }
 
-    // --- Analysis Logic ---
     const analysis = {};
     let bestOverall = { name: '', score: Infinity };
 
-    if (results.AST.avgTime) {
+    if (results.AST.avgTime !== null && results.DAG.avgTime !== null && results.NLL.avgTime !== null) {
         const times = dataStructures.map(ds => results[ds].avgTime);
         const memories = dataStructures.map(ds => results[ds].avgMemory);
 
@@ -36,7 +48,6 @@ const MeasurementDisplay = ({ results, isLoading }) => {
         analysis.fastest = dataStructures[times.indexOf(minTime)];
         analysis.mostEfficient = dataStructures[memories.indexOf(minMemory)];
         
-        // Calculate combined score: (time/minTime) + (memory/minMemory)
         dataStructures.forEach(ds => {
             const timeScore = results[ds].avgTime / minTime;
             const memoryScore = results[ds].avgMemory / minMemory;

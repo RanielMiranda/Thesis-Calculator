@@ -1,6 +1,7 @@
 # derivative_nll.py
 from sympy import Add, Mul, Pow, sin, cos, tan, exp, log, sec, diff, latex, S, Symbol, simplify
 from sympy import csc, cot # Import new trigonometric functions
+from sympy.core.numbers import Number # Explicitly import Number class from sympy.core.numbers
 import time
 import tracemalloc
 import logging
@@ -52,12 +53,18 @@ def compute_nll_derivative_recursive(node, var, steps, parent_rule=None):
         if node.value == var:
             add_step("variableRule", f"The derivative of {latex(var)} with respect to itself is 1.", S.One)
             return NLLNode(S.One)
-        elif isinstance(node.value, (int, float, S.Number)):
+        # Changed S.Number to Number (imported from sympy.core.numbers)
+        elif isinstance(node.value, (int, float, Number)): 
             add_step("constantRule", f"The derivative of constant '{latex(node.value)}' is 0.", S.Zero)
             return NLLNode(S.Zero)
         elif isinstance(node.value, Symbol):
-            add_step("constantRule", f"The derivative of constant '{latex(node.value)}' is 0.", S.Zero)
-            return NLLNode(S.Zero)
+            # Ensure symbols that are not the differentiation variable are treated as constants
+            if node.value != var:
+                add_step("constantRule", f"The derivative of constant '{latex(node.value)}' is 0.", S.Zero)
+                return NLLNode(S.Zero)
+            else: # This case should ideally be caught by 'node.value == var' check above
+                add_step("variableRule", f"The derivative of {latex(var)} with respect to itself is 1.", S.One)
+                return NLLNode(S.One)
         else:
             add_step("constantRule", f"Treating '{latex(node.value)}' as constant, derivative is 0.", S.Zero)
             return NLLNode(S.Zero)
@@ -87,7 +94,8 @@ def compute_nll_derivative_recursive(node, var, steps, parent_rule=None):
     # Power: (u^v)' = v*u^(v-1)*u' if v is constant, else use general rule
     if node.value == Pow:
         base, exp_node = node.children
-        if not exp_node.children and getattr(exp_node.value, "is_number", False):
+        # Check if exponent is a constant number (SymPy Number, int, or float)
+        if (not exp_node.children and isinstance(exp_node.value, (Number, int, float))):
             add_step("powerRule_start", "Applying Power Rule:", node_to_sympy(node))
             dbase = compute_nll_derivative_recursive(base, var, steps, "powerRule_start")
             result = NLLNode(Mul, [
