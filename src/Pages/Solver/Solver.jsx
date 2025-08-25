@@ -32,10 +32,6 @@ const Solver = () => {
 
     const handleInputChange = (e) => setInput(e.target.value);
 
-    /**
-     * Inserts a mathematical symbol into the input field at the cursor's position.
-     * @param {string} symbol - The symbol or function to insert.
-     */
     const insertSymbol = (symbol) => {
         const inputField = document.getElementById('equation-input');
         if (!inputField) return;
@@ -48,11 +44,24 @@ const Solver = () => {
         inputField.setSelectionRange(newCursorPosition, newCursorPosition);
     };
 
-    /**
-     * Solves the expression by sending it to the backend.
-     * It runs the computation for all data structures (AST, DAG, NLL)
-     * and averages the performance metrics over several runs to get a stable measurement.
-     */
+    const formatForMathJax = (text) => {
+        if (!text) return '';
+        let formattedText = text.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+        formattedText = formattedText.replace(/\*\*/g, '^{');
+        formattedText = formattedText.replace(/sin\((.*?)\)/g, '\\sin{$1}');
+        formattedText = formattedText.replace(/cos\((.*?)\)/g, '\\cos{$1}');
+        formattedText = formattedText.replace(/tan\((.*?)\)/g, '\\tan{$1}');
+        formattedText = formattedText.replace(/log\((.*?)\)/g, '\\log{$1}');
+        formattedText = formattedText.replace(/ln\((.*?)\)/g, '\\ln{$1}');
+        formattedText = formattedText.replace(/exp\((.*?)\)/g, 'e^{$1}');
+        formattedText = formattedText.replace(/\^([a-zA-Z0-9_])(?!\w)/g, '^{$1}');
+        formattedText = formattedText.replace(/\^\((.*?)\)/g, '^{$1}');
+        formattedText = formattedText.replace(/(\w+|\([^)]+\))\s*\/\s*(\w+|\([^)]+\))/g, '\\frac{$1}{$2}');
+        formattedText = formattedText.replace(/\*/g, '\\cdot ');
+        formattedText = formattedText.replace(/pi/g, '\\pi');
+        return formattedText;
+    };
+    
     const solveExpression = async () => {
         if (!input.trim()) {
             setErrorMessage("Please enter a function to solve.");
@@ -183,27 +192,28 @@ const Solver = () => {
             <h1 className="font-bold text-2xl text-dark text-center mt-10 mb-4">Derivative Solver</h1>
             <main className="flex flex-col md:flex-row gap-8 p-6 w-full lg:w-2/3 justify-center mx-auto">
                 <div className="w-full md:w-1/3">
-                    <InputField
-                        input={input}
-                        handleInputChange={handleInputChange}
-                        setInput={setInput}
-                        solveExpression={solveExpression}
-                        insertSymbol={insertSymbol}
-                        clearInput={clearInput}
-                        generateExpression={generateExpression}
-                    />
-                    <SolverConfig
-                        displayedDataStructure={dataStructure}
-                        setDisplayedDataStructure={setDataStructure}
-                        numTerms={numTerms}
-                        setNumTerms={setNumTerms}
-                        maxDepth={maxDepth}
-                        setMaxDepth={setMaxDepth}
-                        variable={variable}
-                        setVariable={setVariable}
-                        isLoading={isLoading}
-                        hasResults={!!derivative}
-                    />
+                        <InputField
+                            input={input}
+                            handleInputChange={handleInputChange}
+                            setInput={setInput}
+                            solveExpression={solveExpression}
+                            insertSymbol={insertSymbol}
+                            formatForMathJax={formatForMathJax}
+                            clearInput={clearInput}
+                            generateExpression={generateExpression}
+                        />
+                        <SolverConfig
+                            displayedDataStructure={dataStructure}
+                            setDisplayedDataStructure={setDataStructure}
+                            numTerms={numTerms}
+                            setNumTerms={setNumTerms}
+                            maxDepth={maxDepth}
+                            setMaxDepth={setMaxDepth}
+                            variable={variable}
+                            setVariable={setVariable}
+                            isLoading={isLoading}
+                            hasResults={!!derivative}
+                        />
                 </div>
                 <div className="w-full md:w-2/3">
                     <SolutionDisplay derivative={derivative} error={errorMessage} />
@@ -215,3 +225,5 @@ const Solver = () => {
         </div>
     );
 };
+
+export default Solver;
