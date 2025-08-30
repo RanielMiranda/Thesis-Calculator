@@ -153,9 +153,9 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
                 local_cache[key] = S.Zero
                 return S.Zero
 
-            # Quotient handling: SymPy usually represents u/v as u * v**(-1)
+            # Quotient handling: 
             if isinstance(expr, Mul) and any(isinstance(a, Pow) and a.args[1].is_negative for a in expr.args):
-                # fallback to SymPy solution (cached)
+                
                 _add_step(steps, expr, "quotientRule_start", f"Applying Quotient Rule to: ")
                 result = _diff_value_cached(expr, variable_symbol)
                 local_cache[key] = result
@@ -188,8 +188,6 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
                 return result
 
             # elementary functions (sin, cos, tan, sec, csc, cot, exp, log)
-            # We prefer to pattern-match by type/class rather than using isinstance(expr, sin) etc.
-            # But SymPy's sin, cos are callable classes, so the earlier style still works.
             if isinstance(expr, sin):
                 u = expr.args[0]
                 _add_step(steps, expr, "sinRule_start", "Applying Sine Rule to:")
@@ -270,16 +268,14 @@ def compute_derivative_ast(sympy_expr, variable_symbol):
             return result
 
         differentiated_expr = _rec(sympy_expr)
-        # Final simplify once (helps readability while avoiding repeated work)
-        final_expr = differentiated_expr.simplify()
+        final_expr = differentiated_expr
     finally:
         end_time = time.perf_counter()
         current_memory, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
     # ensure final derivative is present at the end of steps
-    if not steps or steps[-1]['parts'][0]['latex'] != _cached_latex(final_expr):
-        _add_step(steps, final_expr, "final_derivative", "The final derivative is:")
+    _add_step(steps, final_expr, "final_derivative", "The final derivative is:")
 
     # ast node count: try preorder traversal if available, else -1
     ast_node_count_val = -2

@@ -67,6 +67,14 @@ const Solver = () => {
             setErrorMessage("Please enter a function to solve.");
             return;
         }
+        setDerivative('');
+        setErrorMessage('');
+        setResults({
+             AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+             DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+             NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
+        });
+                
         setIsLoading(true);
         setErrorMessage('');
         setProgress(0); // Reset progress bar
@@ -121,11 +129,6 @@ const Solver = () => {
         }
     };
 
-    /**
-     * Converts a Python-style expression (e.g., x**2) to a more standard format (e.g., x^2).
-     * @param {string} expr - The Python expression string.
-     * @returns {string} The converted expression string.
-     */
     const convertPythonExpToCaret = (expr) => {
         let converted = expr.replace(/exp/g, 'e^');
         converted = converted.replace(

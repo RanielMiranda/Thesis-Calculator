@@ -253,16 +253,14 @@ def compute_derivative_dag(sympy_expr, variable_symbol):
     start_time = time.perf_counter()
     try:
         differentiated_expr = _differentiate_recursive_dag(sympy_expr, variable_symbol, steps, session_cache)
-        # final simplify once
-        final_expr = differentiated_expr.simplify()
+        final_expr = differentiated_expr
     finally:
         end_time = time.perf_counter()
         current_memory, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
     # ensure final derivative step exists
-    if not steps or steps[-1]['parts'][0]['latex'] != _cached_latex(final_expr):
-        _add_step(steps, final_expr, "final_derivative", "The final derivative is:")
+    _add_step(steps, final_expr, "final_derivative", "The final derivative is:")
 
     # node count = cached entries count (approx DAG nodes visited)
     dag_node_count_val = len(session_cache)

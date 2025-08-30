@@ -215,7 +215,6 @@ class Parser:
         else:
             raise ValueError(f"Unexpected token: {token}")
 
-
 def preprocess_expression(expr_str: str, var_str: str):
     """
     Parses a mathematical expression string into a SymPy expression tree using a custom tokenizer and parser.

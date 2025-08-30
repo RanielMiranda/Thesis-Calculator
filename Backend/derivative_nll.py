@@ -207,22 +207,15 @@ def compute_derivative_nll(sympy_expr, variable_symbol):
 
     # Parse the SymPy expression to NLL
     nll_expression_tree = parse_expression_to_nll(sympy_expr)
-
-    # Compute the derivative using the NLL structure (with steps)
     nll_differentiated_tree = compute_nll_derivative_recursive(nll_expression_tree, variable_symbol, steps)
-
-    # Convert the differentiated NLL tree back to a SymPy expression
     differentiated_expr = node_to_sympy(nll_differentiated_tree)
 
     # --- Simplify the result so NLL matches AST/DAG ---
-    differentiated_expr = simplify(differentiated_expr)
-
+    differentiated_expr = differentiated_expr
     end_time = time.perf_counter()
     current_memory, peak_memory = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-
     execution_time_ms = (end_time - start_time) * 1000
-
     final_latex_derivative = latex(differentiated_expr)
 
     # Add the final derivative step
@@ -245,7 +238,7 @@ def compute_derivative_nll(sympy_expr, variable_symbol):
         "derivative_latex": final_latex_derivative,
         "raw_sympy_derivative": differentiated_expr,
         "steps": steps,
-        "execution_time_ms": execution_time_ms,
+        "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
         "ast_node_count": nll_node_count_val,
         "data_structure_used": "NLL"
