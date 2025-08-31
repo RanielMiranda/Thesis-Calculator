@@ -1,18 +1,23 @@
-# derivative_dag.py
-from sympy import (
-    symbols, sympify, latex, Add, Mul, Pow, sin, cos, exp, log,
-    Integer, Symbol, Derivative, Function, tan, sec, csc, cot, S
-)
-from functools import lru_cache
+import logging
+import re
 import time
 import tracemalloc
-import logging
+from typing import List, Dict, Optional
+from functools import lru_cache
 
+# --- SymPy Imports ---
+from sympy import (
+    Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
+    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, Derivative
+)
+
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# ---------- Global-ish caches for DAG file ----------
+# --- Caching for Performance ---
 @lru_cache(maxsize=8192)
 def _cached_latex(expr):
+    """Caches the LaTeX representation of a SymPy expression."""
     try:
         return latex(expr)
     except Exception:
@@ -20,257 +25,305 @@ def _cached_latex(expr):
 
 @lru_cache(maxsize=None)
 def _diff_value_cached(expr, var):
-    """SymPy-driven derivative value; cached globally."""
+    """Caches the result of a derivative computation fallback."""
     return Derivative(expr, var, evaluate=True).doit()
 
-# DAG cache stores derivative value and its latex to avoid recomputing either
-# Use a plain dict for the session-local cache (cleared per compute run)
-_differentiation_cache = {}
+# --- Manual Tokenizer and Parser ---
+# Duplicated here to ensure the DAG module is self-contained and the
+# parsing process is included in its performance measurement.
 
-# ---------- step helper ----------
+TOKEN_NUMBER = 'NUMBER'
+TOKEN_SYMBOL = 'SYMBOL'
+TOKEN_FUNCTION = 'FUNCTION'
+TOKEN_OPERATOR = 'OPERATOR'
+TOKEN_LPAREN = 'LPAREN'
+TOKEN_RPAREN = 'RPAREN'
+TOKEN_EOF = 'EOF'
+
+class Token:
+    def __init__(self, type: str, value: str):
+        self.type = type
+        self.value = value
+    def __repr__(self):
+        return f"Token({self.type}, '{self.value}')"
+
+class Tokenizer:
+    TOKEN_SPECS = [
+        (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
+        (r'sin|cos|tan|exp|log|sqrt|sec|csc|cot', TOKEN_FUNCTION),
+        (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
+        (r'[\+\-\*\/^]', TOKEN_OPERATOR),
+        (r'\(', TOKEN_LPAREN),
+        (r'\)', TOKEN_RPAREN),
+        (r'\s+', None),
+    ]
+
+    def __init__(self, expression_string: str):
+        self.expression_string = expression_string
+        self.tokens = self._tokenize()
+        self.current_token_index = 0
+
+    def _tokenize(self) -> List[Token]:
+        tokens = []
+        position = 0
+        while position < len(self.expression_string):
+            match = None
+            for pattern, token_type in self.TOKEN_SPECS:
+                regex = re.compile(pattern)
+                match = regex.match(self.expression_string, position)
+                if match:
+                    if token_type:
+                        tokens.append(Token(token_type, match.group(0)))
+                    position = match.end(0)
+                    break
+            if not match:
+                raise ValueError(f"Unexpected character at position {position}")
+        tokens.append(Token(TOKEN_EOF, ''))
+        return tokens
+    
+    def next(self) -> Token:
+        if self.current_token_index < len(self.tokens):
+            token = self.tokens[self.current_token_index]
+            self.current_token_index += 1
+            return token
+        return Token(TOKEN_EOF, '')
+
+class Parser:
+    def __init__(self, tokenizer: Tokenizer, custom_vars: Dict[str, SympySymbol]):
+        self.tokenizer = tokenizer
+        self.custom_vars = custom_vars
+        self.current_token = self.tokenizer.next()
+        self.supported_sympy_functions = {
+            "sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp,
+            "log": log, "sec": sec, "csc": csc, "cot": cot
+        }
+
+    def _eat(self, token_type: str):
+        if self.current_token.type == token_type:
+            self.current_token = self.tokenizer.next()
+        else:
+            raise ValueError(f"Expected {token_type}, got {self.current_token.type}")
+
+    def parse(self):
+        result = self._expr()
+        if self.current_token.type != TOKEN_EOF:
+            raise ValueError("Unexpected token at end of expression")
+        return result
+
+    def _expr(self):
+        node = self._term()
+        while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('+', '-'):
+            op = self.current_token.value
+            self._eat(TOKEN_OPERATOR)
+            right = self._term()
+            node = Add(node, right) if op == '+' else Add(node, Mul(S.NegativeOne, right))
+        return node
+
+    def _term(self):
+        node = self._factor()
+        while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
+            op = self.current_token.value
+            self._eat(TOKEN_OPERATOR)
+            right = self._factor()
+            node = Mul(node, right) if op == '*' else Mul(node, Pow(right, S.NegativeOne))
+        return node
+
+    def _factor(self):
+        node = self._atom()
+        if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
+            self._eat(TOKEN_OPERATOR)
+            right = self._factor()
+            node = Pow(node, right)
+        return node
+
+    def _atom(self):
+        token = self.current_token
+        if token.type == TOKEN_NUMBER:
+            self._eat(TOKEN_NUMBER)
+            return Float(token.value) if '.' in token.value else Integer(token.value)
+        elif token.type == TOKEN_SYMBOL:
+            self._eat(TOKEN_SYMBOL)
+            return self.custom_vars.get(token.value, SympySymbol(token.value))
+        elif token.type == TOKEN_FUNCTION:
+            func_name = token.value
+            self._eat(TOKEN_FUNCTION)
+            self._eat(TOKEN_LPAREN)
+            arg = self._expr()
+            self._eat(TOKEN_RPAREN)
+            return self.supported_sympy_functions[func_name](arg)
+        elif token.type == TOKEN_LPAREN:
+            self._eat(TOKEN_LPAREN)
+            node = self._expr()
+            self._eat(TOKEN_RPAREN)
+            return node
+        elif token.type == TOKEN_OPERATOR and token.value == '-':
+            self._eat(TOKEN_OPERATOR)
+            return Mul(S.NegativeOne, self._factor())
+        raise ValueError(f"Unexpected token: {token}")
+
+# --- Helper Functions ---
 def _add_step(steps_list, latex_or_expr, rule_key, explanation, prefix="= "):
-    if isinstance(latex_or_expr, str):
-        expr_latex = latex_or_expr
-    else:
-        expr_latex = _cached_latex(latex_or_expr)
+    expr_latex = latex_or_expr if isinstance(latex_or_expr, str) else _cached_latex(latex_or_expr)
     steps_list.append({
         "id": f"step_{len(steps_list)}_{rule_key}",
         "prefix": prefix,
         "parts": [{"latex": expr_latex, "rule_id": rule_key, "explanation_key": rule_key}],
         "explanation_text": explanation
     })
-    return steps_list[-1]['id']
 
-# ---------- DAG differentiator ----------
-def _differentiate_recursive_dag(expression, variable, steps_list, cache):
-    """Differentiates expression using caching to simulate DAG reuse.
-       cache is a dict mapping (expr, var) -> derivative (SymPy)"""
-    key = (expression, variable)
-    if key in cache:
-        # On reuse just add a short cached entry and return the value
-        cached_val = cache[key]
-        _add_step(steps_list, _cached_latex(cached_val), "cached_subexpr",
-                  f"Using cached derivative for { _cached_latex(expression) }")
-        return cached_val
-
-    # Base cases
-    if not expression.has(variable):
-        _add_step(steps_list, S.Zero, "constantRule", f"Derivative of a constant is: ",
-                  prefix="= ")
-        cache[key] = S.Zero
-        return S.Zero
-
-    if expression == variable:
-        _add_step(steps_list, S.One, "variableRule", f"Derivative of { _cached_latex(variable) } with respect to itself is: ")
-        cache[key] = S.One
-        return S.One
-
-    # Sum
-    if isinstance(expression, Add):
-        _add_step(steps_list, expression, "sumRule_start", "Applying Sum Rule to:")
-        d_terms = [ _differentiate_recursive_dag(arg, variable, steps_list, cache) for arg in expression.args ]
-        result = Add(*d_terms)
-        _add_step(steps_list, result, "sumRule_result", f"Sum of derivatives: ")
-        cache[key] = result
-        return result
-
-    # Product (constant multiple or two-term product or many-term)
-    if isinstance(expression, Mul):
-        const_terms = [a for a in expression.args if not a.has(variable)]
-        non_const_terms = [a for a in expression.args if a.has(variable)]
-
-        if const_terms and non_const_terms:
-            c = Mul(*const_terms)
-            f = Mul(*non_const_terms)
-            _add_step(steps_list, expression, "constantMultipleRule_start", f"Applying Constant Multiple Rule to:")
-            df = _differentiate_recursive_dag(f, variable, steps_list, cache)
-            result = Mul(c, df)
-            _add_step(steps_list, result, "constantMultipleRule_result", f"Result of Constant Multiple Rule to: ")
-            cache[key] = result
-            return result
-
-        if len(non_const_terms) == 2 and not const_terms:
-            u, v = non_const_terms
-            _add_step(steps_list, expression, "productRule_start", f"Applying Product Rule to: ")
-            _add_step(steps_list, f"\\frac{{d}}{{d{_cached_latex(variable)}}}({_cached_latex(v)})", "productRule_dv_dx_expr",
-                      "Derivative of second term")
-            dv = _differentiate_recursive_dag(v, variable, steps_list, cache)
-            _add_step(steps_list, f"\\frac{{d}}{{d{_cached_latex(variable)}}}({_cached_latex(u)})", "productRule_du_dx_expr",
-                      "Derivative of first term")
-            du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-            result = Add(Mul(u, dv), Mul(v, du))
-            _add_step(steps_list, result, "productRule_result", f"Product Rule result: ")
-            cache[key] = result
-            return result
-
-        if len(non_const_terms) > 2 and not const_terms:
-            # Use optimized product formula: P * sum(d(ai)/ai)
-            P = expression
-            sum_terms = []
-            for a in expression.args:
-                if a.has(variable):
-                    da = _differentiate_recursive_dag(a, variable, steps_list, cache)
-                    sum_terms.append(da / a)
-            result = Mul(P, Add(*sum_terms))
-            _add_step(steps_list, result, "productRule_many_terms", f"Optimized product result:")
-            cache[key] = result
-            return result
-
-        # constant case
-        _add_step(steps_list, S.Zero, "constantRule", f"Derivative of a constant product is: ")
-        cache[key] = S.Zero
-        return S.Zero
-
-    # Quotient detection (u * v**(-1)) -> fallback to SymPy
-    if isinstance(expression, Mul) and any(isinstance(a, Pow) and a.args[1].is_negative for a in expression.args):
-        _add_step(steps_list, expression, "quotientRule_start", f"Applying Quotient Rule to: ")
-        result = _diff_value_cached(expression, variable)
-        _add_step(steps_list, result, "quotientRule_result", f"Quotient fallback: ")
-        _differentiation_cache[key] = result
-        cache[key] = result
-        return result
-
-    # Power
-    if isinstance(expression, Pow):
-        base, exponent = expression.args[0], expression.args[1]
-        _add_step(steps_list, expression, "powerRule_start", "Applying Power Rule to:")
-        if exponent == S.Half:
-            # sqrt case
-            dbase = _differentiate_recursive_dag(base, variable, steps_list, cache)
-            result = Mul(S.Half, Pow(base, S.NegativeHalf), dbase)
-            _add_step(steps_list, result, "sqrtRule_result", f"Square root Rule result: ")
-            cache[key] = result
-            return result
-        if not exponent.has(variable):
-            dbase = _differentiate_recursive_dag(base, variable, steps_list, cache)
-            result = Mul(exponent, Pow(base, exponent - 1), dbase)
-            _add_step(steps_list, result, "powerRule_u_n_result", f"Power Rule result: ")
-            cache[key] = result
-            return result
-        if not base.has(variable) and exponent.has(variable):
-            du = _differentiate_recursive_dag(exponent, variable, steps_list, cache)
-            result = Mul(expression, log(base), du)
-            _add_step(steps_list, result, "expRule_a_u_result", f"Exponential rule result: ")
-            cache[key] = result
-            return result
-        # general fallback
-        result = _diff_value_cached(expression, variable)
-        _add_step(steps_list, result, "powerRule_general_sympy_fallback", f"General power fallback: ")
-        cache[key] = result
-        return result
-
-    # Elementary functions
-    if isinstance(expression, sin):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "sinRule_start", "Applying Sine Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(cos(u), du)
-        _add_step(steps_list, result, "sinRule_result", f"Sine Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, cos):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "cosRule_start", "Applying Cosine Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(S.NegativeOne, sin(u), du)
-        _add_step(steps_list, result, "cosRule_result", f"Cosine Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, tan):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "tanRule_start", "Applying Tangent Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(Pow(sec(u), 2), du)
-        _add_step(steps_list, result, "tanRule_result", f"Tangent Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, sec):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "secRule_start", "Applying Secant Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(sec(u), tan(u), du)
-        _add_step(steps_list, result, "secRule_result", f"Secant Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, csc):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "cscRule_start", "Applying Cosecant Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(S.NegativeOne, csc(u), cot(u), du)
-        _add_step(steps_list, result, "cscRule_result", f"Cosecant Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, cot):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "cotRule_start", "Applying Cotangent Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
-        _add_step(steps_list, result, "cotRule_result", f"Cotangent Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, exp):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "expRule_start", "Applying Exponential Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(exp(u), du)
-        _add_step(steps_list, result, "expRule_result", f"Exponential Rule result: ")
-        cache[key] = result
-        return result
-
-    if isinstance(expression, log):
-        u = expression.args[0]
-        _add_step(steps_list, expression, "logRule_start", "Applying Log Rule to:")
-        du = _differentiate_recursive_dag(u, variable, steps_list, cache)
-        result = Mul(Pow(u, -1), du)
-        _add_step(steps_list, result, "logRule_result", f"Log Rule result: ")
-        cache[key] = result
-        return result
-
-    # Fallback: ask SymPy
-    _add_step(steps_list, expression, "unknownRule", f"No DAG rule matched for this. Using SymPy's diff as fallback.")
-    result = _diff_value_cached(expression, variable)
-    _add_step(steps_list, result, "unknownRule_sympy_fallback", f"Fallback result: ")
-    cache[key] = result
-    return result
-
-def compute_derivative_dag(sympy_expr, variable_symbol):
-    """Top-level entry for DAG differentiation."""
+# --- Main DAG Differentiator ---
+def compute_derivative_dag(expression_str: str, variable_str: str):
+    """
+    Computes a derivative using a DAG-like approach with caching.
+    The entire process, including parsing, is measured.
+    """
     steps = []
-    # clear session-local cache and reuse global storage for expensive cache if needed
-    session_cache = {}
-    _differentiation_cache.clear()
+    session_cache = {}  # Cache for this specific solve request
 
-    _add_step(steps, sympy_expr, "initial_expression", f"Differentiating:",
-              prefix=f"\\frac{{d}}{{d{_cached_latex(variable_symbol)}}}")
-
+    # --- Performance Measurement Start ---
     tracemalloc.start()
     start_time = time.perf_counter()
+
     try:
-        differentiated_expr = _differentiate_recursive_dag(sympy_expr, variable_symbol, steps, session_cache)
-        final_expr = differentiated_expr
+        # 1. Parse the string into a SymPy expression tree
+        tokenizer = Tokenizer(expression_str)
+        variable_symbol = SympySymbol(variable_str)
+        parser = Parser(tokenizer, {variable_str: variable_symbol})
+        sympy_expr = parser.parse()
+
+        _add_step(steps, sympy_expr, "initial_expression", "Differentiating: ",
+                  prefix=f"\\frac{{d}}{{d{_cached_latex(variable_symbol)}}}")
+
+        # 2. Differentiate recursively with caching (simulating DAG)
+        def _differentiate_recursive_dag(expression):
+            key = (expression, variable_symbol)
+            if key in session_cache:
+                cached_val = session_cache[key]
+                _add_step(steps, cached_val, "cached_subexpr", f"Using cached derivative for {_cached_latex(expression)}")
+                return cached_val
+            
+            # Base Cases
+            if not expression.has(variable_symbol):
+                result = S.Zero
+                _add_step(steps, result, "constantRule", "The derivative of a constant is 0.")
+            elif expression == variable_symbol:
+                result = S.One
+                _add_step(steps, result, "variableRule", f"The derivative of {variable_str} with respect to itself is 1.")
+            
+            # Recursive Rules
+            elif isinstance(expression, Add):
+                _add_step(steps, expression, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                d_terms = [_differentiate_recursive_dag(arg) for arg in expression.args]
+                result = Add(*d_terms)
+                _add_step(steps, result, "sumRule_result", "The sum of the derivatives is:")
+            
+            elif isinstance(expression, Mul):
+                const_terms = [a for a in expression.args if not a.has(variable_symbol)]
+                non_const_terms = [a for a in expression.args if a.has(variable_symbol)]
+                if const_terms and non_const_terms:
+                    c = Mul(*const_terms); f = Mul(*non_const_terms)
+                    _add_step(steps, expression, "constantMultipleRule_start", "Applying the Constant Multiple Rule: (c*f)' = c*f'")
+                    df = _differentiate_recursive_dag(f)
+                    result = Mul(c, df)
+                    _add_step(steps, result, "constantMultipleRule_result", "The result of the Constant Multiple Rule is:")
+                elif len(non_const_terms) == 2 and not const_terms:
+                    u, v = non_const_terms
+                    _add_step(steps, expression, "productRule_start", "Applying the Product Rule: (uv)' = u'v + uv'")
+                    du, dv = _differentiate_recursive_dag(u), _differentiate_recursive_dag(v)
+                    result = Add(Mul(du, v), Mul(u, dv))
+                    _add_step(steps, result, "productRule_result", "The result of the Product Rule is:")
+                else:
+                    _add_step(steps, expression, "general_product_fallback", "Using a general product rule or fallback.")
+                    result = _diff_value_cached(expression, variable_symbol)
+
+            elif isinstance(expression, Pow):
+                base, exponent = expression.args
+                _add_step(steps, expression, "powerRule_start", "Applying the Power Rule or related rules.")
+                if not exponent.has(variable_symbol):
+                    dbase = _differentiate_recursive_dag(base)
+                    result = Mul(exponent, Pow(base, exponent - 1), dbase)
+                    _add_step(steps, result, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                elif not base.has(variable_symbol):
+                    dexp = _differentiate_recursive_dag(exponent)
+                    result = Mul(expression, log(base), dexp)
+                    _add_step(steps, result, "expRule_result", "Result of the Exponential Rule (a^u)' = a^u * ln(a) * u':")
+                else:
+                    _add_step(steps, expression, "general_power_fallback", "Using a general power rule (logarithmic differentiation) fallback.")
+                    result = _diff_value_cached(expression, variable_symbol)
+
+            elif isinstance(expression, sin):
+                u = expression.args[0]
+                _add_step(steps, expression, "sinRule_start", "Applying the Chain Rule for sin(u): d/dx(sin(u)) = cos(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(cos(u), du)
+                _add_step(steps, result, "sinRule_result", "The result for the sine function is:")
+            elif isinstance(expression, cos):
+                u = expression.args[0]
+                _add_step(steps, expression, "cosRule_start", "Applying the Chain Rule for cos(u): d/dx(cos(u)) = -sin(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(S.NegativeOne, sin(u), du)
+                _add_step(steps, result, "cosRule_result", "The result for the cosine function is:")
+            elif isinstance(expression, tan):
+                u = expression.args[0]
+                _add_step(steps, expression, "tanRule_start", "Applying the Chain Rule for tan(u): d/dx(tan(u)) = sec^2(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(Pow(sec(u), 2), du)
+                _add_step(steps, result, "tanRule_result", "The result for the tangent function is:")
+            elif isinstance(expression, exp):
+                u = expression.args[0]
+                _add_step(steps, expression, "expRule_start", "Applying the Chain Rule for exp(u): d/dx(e^u) = e^u * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(exp(u), du)
+                _add_step(steps, result, "expRule_result", "The result for the exponential function is:")
+            elif isinstance(expression, log):
+                u = expression.args[0]
+                _add_step(steps, expression, "logRule_start", "Applying the Chain Rule for log(u): d/dx(ln(u)) = (1/u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(Pow(u, -1), du)
+                _add_step(steps, result, "logRule_result", "The result for the logarithm function is:")
+            elif isinstance(expression, sec):
+                u = expression.args[0]
+                _add_step(steps, expression, "secRule_start", "Applying the Chain Rule for sec(u): d/dx(sec(u)) = sec(u)tan(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(sec(u), tan(u), du)
+                _add_step(steps, result, "secRule_result", "The result for the secant function is:")
+            elif isinstance(expression, csc):
+                u = expression.args[0]
+                _add_step(steps, expression, "cscRule_start", "Applying the Chain Rule for csc(u): d/dx(csc(u)) = -csc(u)cot(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(S.NegativeOne, csc(u), cot(u), du)
+                _add_step(steps, result, "cscRule_result", "The result for the cosecant function is:")
+            elif isinstance(expression, cot):
+                u = expression.args[0]
+                _add_step(steps, expression, "cotRule_start", "Applying the Chain Rule for cot(u): d/dx(cot(u)) = -csc^2(u) * u'")
+                du = _differentiate_recursive_dag(u)
+                result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
+                _add_step(steps, result, "cotRule_result", "The result for the cotangent function is:")
+
+            else:
+                _add_step(steps, expression, "unknownRule_sympy_fallback", "No specific rule matched. Using a fallback.")
+                result = _diff_value_cached(expression, variable_symbol)
+            
+            session_cache[key] = result
+            return result
+
+        final_derivative = _differentiate_recursive_dag(sympy_expr)
+
     finally:
+        # --- Performance Measurement End ---
         end_time = time.perf_counter()
-        current_memory, peak_memory = tracemalloc.get_traced_memory()
+        _, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
-    # ensure final derivative step exists
-    _add_step(steps, final_expr, "final_derivative", "The final derivative is:")
-
-    # node count = cached entries count (approx DAG nodes visited)
-    dag_node_count_val = len(session_cache)
-
+    _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
+    
+    dag_node_count = len(session_cache)
+    
     return {
-        "derivative_latex": _cached_latex(final_expr),
-        "raw_sympy_derivative": final_expr,
+        "derivative_latex": _cached_latex(final_derivative),
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "ast_node_count": dag_node_count_val,
-        "data_structure_used": "DAG"
+        "ast_node_count": dag_node_count,
     }
+

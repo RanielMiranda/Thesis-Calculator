@@ -1,245 +1,296 @@
-# derivative_nll.py
-from sympy import Add, Mul, Pow, sin, cos, tan, exp, log, sec, diff, latex, S, Symbol, simplify
-from sympy import csc, cot # Import new trigonometric functions
-from sympy.core.numbers import Number # Explicitly import Number class from sympy.core.numbers
+import logging
+import re
 import time
 import tracemalloc
-import logging
+from typing import List, Dict
 
+# --- SymPy Imports ---
+from sympy import (
+    Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
+    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, Derivative, diff
+)
+from sympy.core.numbers import Number
+
+# --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
+# --- Custom NLL Data Structure ---
 class NLLNode:
+    """A node for the Nested Linked List representation of an expression."""
     def __init__(self, value, children=None):
         self.value = value
         self.children = children or []
 
-def parse_expression_to_nll(expr):
-    """
-    Recursively parse a sympy expression into a Nested Linked List (NLL) structure.
-    """
+# --- Manual Tokenizer and Parser (included for measurement) ---
+TOKEN_NUMBER = 'NUMBER'
+TOKEN_SYMBOL = 'SYMBOL'
+TOKEN_FUNCTION = 'FUNCTION'
+TOKEN_OPERATOR = 'OPERATOR'
+TOKEN_LPAREN = 'LPAREN'
+TOKEN_RPAREN = 'RPAREN'
+TOKEN_EOF = 'EOF'
+
+class Token:
+    def __init__(self, type: str, value: str):
+        self.type = type
+        self.value = value
+    def __repr__(self):
+        return f"Token({self.type}, '{self.value}')"
+
+class Tokenizer:
+    TOKEN_SPECS = [
+        (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
+        (r'sin|cos|tan|exp|log|sqrt|sec|csc|cot', TOKEN_FUNCTION),
+        (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
+        (r'[\+\-\*\/^]', TOKEN_OPERATOR),
+        (r'\(', TOKEN_LPAREN),
+        (r'\)', TOKEN_RPAREN),
+        (r'\s+', None),
+    ]
+
+    def __init__(self, expression_string: str):
+        self.expression_string = expression_string
+        self.tokens = self._tokenize()
+        self.current_token_index = 0
+
+    def _tokenize(self) -> List[Token]:
+        tokens = []
+        position = 0
+        while position < len(self.expression_string):
+            match = None
+            for pattern, token_type in self.TOKEN_SPECS:
+                regex = re.compile(pattern)
+                match = regex.match(self.expression_string, position)
+                if match:
+                    if token_type:
+                        tokens.append(Token(token_type, match.group(0)))
+                    position = match.end(0)
+                    break
+            if not match:
+                raise ValueError(f"Unexpected character at position {position}")
+        tokens.append(Token(TOKEN_EOF, ''))
+        return tokens
+    
+    def next(self) -> Token:
+        if self.current_token_index < len(self.tokens):
+            token = self.tokens[self.current_token_index]
+            self.current_token_index += 1
+            return token
+        return Token(TOKEN_EOF, '')
+
+class Parser:
+    def __init__(self, tokenizer: Tokenizer, custom_vars: Dict[str, SympySymbol]):
+        self.tokenizer = tokenizer
+        self.custom_vars = custom_vars
+        self.current_token = self.tokenizer.next()
+        self.supported_sympy_functions = {
+            "sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp,
+            "log": log, "sec": sec, "csc": csc, "cot": cot
+        }
+
+    def _eat(self, token_type: str):
+        if self.current_token.type == token_type:
+            self.current_token = self.tokenizer.next()
+        else:
+            raise ValueError(f"Expected {token_type}, got {self.current_token.type}")
+
+    def parse(self):
+        result = self._expr()
+        if self.current_token.type != TOKEN_EOF:
+            raise ValueError("Unexpected token at end of expression")
+        return result
+
+    def _expr(self):
+        node = self._term()
+        while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('+', '-'):
+            op = self.current_token.value
+            self._eat(TOKEN_OPERATOR)
+            right = self._term()
+            node = Add(node, right) if op == '+' else Add(node, Mul(S.NegativeOne, right))
+        return node
+
+    def _term(self):
+        node = self._factor()
+        while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
+            op = self.current_token.value
+            self._eat(TOKEN_OPERATOR)
+            right = self._factor()
+            node = Mul(node, right) if op == '*' else Mul(node, Pow(right, S.NegativeOne))
+        return node
+
+    def _factor(self):
+        node = self._atom()
+        if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
+            self._eat(TOKEN_OPERATOR)
+            right = self._factor()
+            node = Pow(node, right)
+        return node
+
+    def _atom(self):
+        token = self.current_token
+        if token.type == TOKEN_NUMBER:
+            self._eat(TOKEN_NUMBER)
+            return Float(token.value) if '.' in token.value else Integer(token.value)
+        elif token.type == TOKEN_SYMBOL:
+            self._eat(TOKEN_SYMBOL)
+            return self.custom_vars.get(token.value, SympySymbol(token.value))
+        elif token.type == TOKEN_FUNCTION:
+            func_name = token.value
+            self._eat(TOKEN_FUNCTION)
+            self._eat(TOKEN_LPAREN)
+            arg = self._expr()
+            self._eat(TOKEN_RPAREN)
+            return self.supported_sympy_functions[func_name](arg)
+        elif token.type == TOKEN_LPAREN:
+            self._eat(TOKEN_LPAREN)
+            node = self._expr()
+            self._eat(TOKEN_RPAREN)
+            return node
+        elif token.type == TOKEN_OPERATOR and token.value == '-':
+            self._eat(TOKEN_OPERATOR)
+            return Mul(S.NegativeOne, self._factor())
+        raise ValueError(f"Unexpected token: {token}")
+
+# --- NLL Conversion and Computation Logic ---
+
+def parse_sympy_to_nll(expr):
+    """Converts a SymPy expression into an NLLNode tree."""
     if not hasattr(expr, 'args') or not expr.args:
-        # Handle SymPy constants like S.One, S.Zero, S.NegativeOne as values
-        if isinstance(expr, (S.One.__class__, S.Zero.__class__, S.NegativeOne.__class__)):
-            return NLLNode(expr)
-        # Handle Symbol objects
-        if isinstance(expr, Symbol):
-            return NLLNode(expr)
-        # For other literals (e.g., Python int/float converted by sympify)
-        if isinstance(expr, (int, float)):
-            return NLLNode(S(expr)) # Convert Python int/float to SymPy Number
-        return NLLNode(expr) # Fallback for unexpected leaf types
-
-    return NLLNode(expr.func, [parse_expression_to_nll(arg) for arg in expr.args])
-
-def compute_nll_derivative_recursive(node, var, steps, parent_rule=None):
-    """
-    Recursively compute the derivative of the NLL expression tree,
-    adding step-by-step explanations to the steps list.
-    """
-    def add_step(rule_key, explanation, latex_expr, explanation_key=None):
-        steps.append({
-            "id": f"step_{len(steps)}_{rule_key}",
-            "prefix": "= ",
-            "parts": [{
-                "latex": latex(latex_expr) if not isinstance(latex_expr, str) else latex_expr,
-                "rule_id": rule_key,
-                "explanation_key": explanation_key or rule_key
-            }],
-            "explanation_text": explanation
-        })
-
-    # Leaf node (variable or constant)
-    if not node.children:
-        if node.value == var:
-            add_step("variableRule", f"The derivative of {latex(var)} with respect to itself is 1.", S.One)
-            return NLLNode(S.One)
-        # Changed S.Number to Number (imported from sympy.core.numbers)
-        elif isinstance(node.value, (int, float, Number)): 
-            add_step("constantRule", f"The derivative of constant '{latex(node.value)}' is 0.", S.Zero)
-            return NLLNode(S.Zero)
-        elif isinstance(node.value, Symbol):
-            # Ensure symbols that are not the differentiation variable are treated as constants
-            if node.value != var:
-                add_step("constantRule", f"The derivative of constant '{latex(node.value)}' is 0.", S.Zero)
-                return NLLNode(S.Zero)
-            else: # This case should ideally be caught by 'node.value == var' check above
-                add_step("variableRule", f"The derivative of {latex(var)} with respect to itself is 1.", S.One)
-                return NLLNode(S.One)
-        else:
-            add_step("constantRule", f"Treating '{latex(node.value)}' as constant, derivative is 0.", S.Zero)
-            return NLLNode(S.Zero)
-
-    # Addition: (u + v)' = u' + v'
-    if node.value == Add:
-        add_step("sumRule_start", "Applying Sum Rule:", node_to_sympy(node))
-        d_children = [compute_nll_derivative_recursive(child, var, steps, "sumRule_start") for child in node.children]
-        result = NLLNode(Add, d_children)
-        add_step("sumRule_result", "Sum of derivatives:", node_to_sympy(result))
-        return result
-
-    # Multiplication: (u * v)' = u'*v + u*v'
-    if node.value == Mul:
-        add_step("productRule_start", "Applying Product Rule:", node_to_sympy(node))
-        terms = []
-        n = len(node.children)
-        for i in range(n):
-            d_terms = []
-            for j, child in enumerate(node.children):
-                d_terms.append(compute_nll_derivative_recursive(child, var, steps, "productRule_start") if i == j else child)
-            terms.append(NLLNode(Mul, d_terms))
-        result = NLLNode(Add, terms)
-        add_step("productRule_result", "Sum of product rule terms:", node_to_sympy(result))
-        return result
-
-    # Power: (u^v)' = v*u^(v-1)*u' if v is constant, else use general rule
-    if node.value == Pow:
-        base, exp_node = node.children
-        # Check if exponent is a constant number (SymPy Number, int, or float)
-        if (not exp_node.children and isinstance(exp_node.value, (Number, int, float))):
-            add_step("powerRule_start", "Applying Power Rule:", node_to_sympy(node))
-            dbase = compute_nll_derivative_recursive(base, var, steps, "powerRule_start")
-            result = NLLNode(Mul, [
-                exp_node,
-                NLLNode(Pow, [base, NLLNode(exp_node.value - S.One)]),
-                dbase
-            ])
-            add_step("powerRule_u_n_result", "Result of Power Rule:", node_to_sympy(result))
-            return result
-        else:
-            add_step("powerRule_general_start", "General Power Rule (logarithmic differentiation):", node_to_sympy(node))
-            sympy_expr = node_to_sympy(node)
-            sympy_diff = diff(sympy_expr, var)
-            add_step("powerRule_general_sympy_fallback", "SymPy's direct computation for general power rule.", sympy_diff)
-            return parse_expression_to_nll(sympy_diff)
-
-    # Trigonometric and exponential/logarithmic functions
-    if node.value == sin:
-        u = node.children[0]
-        add_step("sinRule_start", "Applying Sine Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "sinRule_start")
-        result = NLLNode(Mul, [NLLNode(cos, [u]), du])
-        add_step("sinRule_result", "Result of Sine Rule:", node_to_sympy(result))
-        return result
-    if node.value == cos:
-        u = node.children[0]
-        add_step("cosRule_start", "Applying Cosine Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "cosRule_start")
-        result = NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(sin, [u]), du])
-        add_step("cosRule_result", "Result of Cosine Rule:", node_to_sympy(result))
-        return result
-    if node.value == tan:
-        u = node.children[0]
-        add_step("tanRule_start", "Applying Tangent Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "tanRule_start")
-        result = NLLNode(Mul, [NLLNode(Pow, [NLLNode(sec, [u]), NLLNode(S(2))]), du])
-        add_step("tanRule_result", "Result of Tangent Rule:", node_to_sympy(result))
-        return result
-    if node.value == sec:
-        u = node.children[0]
-        add_step("secRule_start", "Applying Secant Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "secRule_start")
-        result = NLLNode(Mul, [NLLNode(sec, [u]), NLLNode(tan, [u]), du])
-        add_step("secRule_result", "Result of Secant Rule:", node_to_sympy(result))
-        return result
-    if node.value == csc:
-        u = node.children[0]
-        add_step("cscRule_start", "Applying Cosecant Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "cscRule_start")
-        result = NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(csc, [u]), NLLNode(cot, [u]), du])
-        add_step("cscRule_result", "Result of Cosecant Rule:", node_to_sympy(result))
-        return result
-    if node.value == cot:
-        u = node.children[0]
-        add_step("cotRule_start", "Applying Cotangent Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "cotRule_start")
-        result = NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(Pow, [NLLNode(csc, [u]), NLLNode(S(2))]), du])
-        add_step("cotRule_result", "Result of Cotangent Rule:", node_to_sympy(result))
-        return result
-    if node.value == exp:
-        u = node.children[0]
-        add_step("expRule_start", "Applying Exponential Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "expRule_start")
-        result = NLLNode(Mul, [NLLNode(exp, [u]), du])
-        add_step("expRule_result", "Result of Exponential Rule:", node_to_sympy(result))
-        return result
-    if node.value == log:
-        u = node.children[0]
-        add_step("logRule_start", "Applying Logarithmic Rule:", node_to_sympy(node))
-        du = compute_nll_derivative_recursive(u, var, steps, "logRule_start")
-        result = NLLNode(Mul, [NLLNode(Pow, [u, NLLNode(S.NegativeOne)]), du])
-        add_step("logRule_result", "Result of Logarithmic Rule:", node_to_sympy(result))
-        return result
-
-    # Fallback: use SymPy's diff for unsupported nodes
-    logger.warning(f"No specific NLL rule matched for function '{node.value}'. Using SymPy's diff as fallback.")
-    sympy_expr = node_to_sympy(node)
-    sympy_diff = diff(sympy_expr, var)
-    add_step("unknownRule", f"No specific NLL rule matched for: {latex(sympy_expr)}. Using SymPy's diff as fallback.", sympy_diff)
-    return parse_expression_to_nll(sympy_diff)
+        return NLLNode(expr)
+    return NLLNode(expr.func, [parse_sympy_to_nll(arg) for arg in expr.args])
 
 def node_to_sympy(node):
-    """
-    Convert an NLLNode back to a sympy expression.
-    """
+    """Converts an NLLNode tree back into a SymPy expression."""
     if not node.children:
-        if isinstance(node.value, (int, float)):
-            return S(node.value)
         return node.value
     return node.value(*[node_to_sympy(child) for child in node.children])
 
-def compute_derivative_nll(sympy_expr, variable_symbol):
+def compute_derivative_nll(expression_str: str, variable_str: str):
     """
-    Main function to compute the derivative using the NLL structure.
-    Now includes step-by-step explanations.
+    Computes a derivative using a custom NLL data structure.
+    The process of parsing and converting to NLL is included in the measurement.
     """
     steps = []
 
-    # Add initial step
-    steps.append({
-        "id": "step_0_initial_expression",
-        "prefix": f"\\frac{{d}}{{d{latex(variable_symbol)}}}",
-        "parts": [{"latex": latex(sympy_expr), "rule_id": "initial_expression", "explanation_key": "initial_expression"}],
-        "explanation_text": f"Differentiating: "
-    })
+    def _add_step_nll(expr_node, rule_key, explanation):
+        _add_step(steps, node_to_sympy(expr_node), rule_key, explanation)
 
     tracemalloc.start()
     start_time = time.perf_counter()
 
-    # Parse the SymPy expression to NLL
-    nll_expression_tree = parse_expression_to_nll(sympy_expr)
-    nll_differentiated_tree = compute_nll_derivative_recursive(nll_expression_tree, variable_symbol, steps)
-    differentiated_expr = node_to_sympy(nll_differentiated_tree)
+    try:
+        tokenizer = Tokenizer(expression_str)
+        variable_symbol = SympySymbol(variable_str)
+        parser = Parser(tokenizer, {variable_str: variable_symbol})
+        sympy_expr = parser.parse()
+        nll_tree = parse_sympy_to_nll(sympy_expr)
 
-    # --- Simplify the result so NLL matches AST/DAG ---
-    differentiated_expr = differentiated_expr
-    end_time = time.perf_counter()
-    current_memory, peak_memory = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    execution_time_ms = (end_time - start_time) * 1000
-    final_latex_derivative = latex(differentiated_expr)
+        _add_step(steps, sympy_expr, "initial_expression", "Differentiating: ",
+                  prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
+        
+        def _compute_nll_derivative_recursive(node, var):
+            if not node.children:
+                sympy_node = node_to_sympy(node)
+                if sympy_node == var:
+                    _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
+                    return NLLNode(S.One)
+                if isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(sympy_node)} is 0.")
+                    return NLLNode(S.Zero)
+                
+                # Fallback for other leaf types
+                derivative_segment = diff(sympy_node, var)
+                _add_step(steps, derivative_segment, "leaf_fallback", f"Fallback for leaf node {latex(sympy_node)}.")
+                return parse_sympy_to_nll(derivative_segment)
+            
+            op = node.value
+            args = node.children
+            
+            if op == Add:
+                _add_step_nll(node, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                result_node = NLLNode(Add, [_compute_nll_derivative_recursive(arg, var) for arg in args])
+                _add_step_nll(result_node, "sumRule_result", "The sum of the derivatives is:")
+                return result_node
+            
+            if op == Mul:
+                _add_step_nll(node, "productRule_start", "Applying the Product Rule.")
+                terms = []
+                for i in range(len(args)):
+                    d_terms = []
+                    for j, child in enumerate(args):
+                        d_terms.append(_compute_nll_derivative_recursive(child, var) if i == j else child)
+                    terms.append(NLLNode(Mul, d_terms))
+                result_node = NLLNode(Add, terms)
+                _add_step_nll(result_node, "productRule_result", "The result of the Product Rule is:")
+                return result_node
 
-    # Add the final derivative step
-    steps.append({
-        "id": f"step_{len(steps)}_final_derivative",
-        "prefix": "= ",
-        "parts": [{"latex": final_latex_derivative, "rule_id": "final_derivative", "explanation_key": "final_derivative"}],
-        "explanation_text": f"The final derivative is: "
-    })
+            if op == Pow:
+                _add_step_nll(node, "powerRule_start", "Applying the Power Rule or related rules.")
+                base, exp_node = args
+                if not node_to_sympy(exp_node).has(var):
+                    du = _compute_nll_derivative_recursive(base, var)
+                    new_exp = parse_sympy_to_nll(node_to_sympy(exp_node) - 1)
+                    result_node = NLLNode(Mul, [exp_node, NLLNode(Pow, [base, new_exp]), du])
+                    _add_step_nll(result_node, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                    return result_node
+            
+            # Helper for chain rule functions
+            def apply_chain_rule(rule_name, display_rule, result_func):
+                u_node = args[0]
+                _add_step_nll(node, f"{rule_name}Rule_start", f"Applying the Chain Rule for {rule_name}(u): {display_rule}")
+                du_node = _compute_nll_derivative_recursive(u_node, var)
+                result_node = result_func(u_node, du_node)
+                _add_step_nll(result_node, f"{rule_name}Rule_result", f"The result for the {rule_name} function is:")
+                return result_node
 
-    # Node count for NLL is the total number of nodes in the NLL tree
-    def count_nll_nodes(node):
-        count = 1
-        for child in node.children:
-            count += count_nll_nodes(child)
-        return count
-    nll_node_count_val = count_nll_nodes(nll_expression_tree)
+            if op == sin:
+                return apply_chain_rule("sin", "cos(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(cos, [u]), du]))
+            if op == cos:
+                return apply_chain_rule("cos", "-sin(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(sin, [u]), du]))
+            if op == tan:
+                return apply_chain_rule("tan", "sec^2(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [NLLNode(sec, [u]), NLLNode(S(2))]), du]))
+            if op == sec:
+                return apply_chain_rule("sec", "sec(u)tan(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(sec, [u]), NLLNode(tan, [u]), du]))
+            if op == csc:
+                return apply_chain_rule("csc", "-csc(u)cot(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(csc, [u]), NLLNode(cot, [u]), du]))
+            if op == cot:
+                return apply_chain_rule("cot", "-csc^2(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(Pow, [NLLNode(csc, [u]), NLLNode(S(2))]), du]))
+            if op == exp:
+                return apply_chain_rule("exp", "e^u * u'", lambda u, du: NLLNode(Mul, [NLLNode(exp, [u]), du]))
+            if op == log:
+                return apply_chain_rule("log", "(1/u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [u, NLLNode(S.NegativeOne)]), du]))
+
+            sympy_segment = node_to_sympy(node)
+            _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific NLL rule matched. Using a fallback.")
+            derivative_segment = diff(sympy_segment, var)
+            return parse_sympy_to_nll(derivative_segment)
+
+        differentiated_nll = _compute_nll_derivative_recursive(nll_tree, variable_symbol)
+        final_derivative = node_to_sympy(differentiated_nll)
+
+    finally:
+        end_time = time.perf_counter()
+        _, peak_memory = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    
+    _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
+    
+    def count_nodes(node): return 1 + sum(count_nodes(child) for child in node.children)
+    nll_node_count = count_nodes(nll_tree)
 
     return {
-        "derivative_latex": final_latex_derivative,
-        "raw_sympy_derivative": differentiated_expr,
+        "derivative_latex": latex(final_derivative),
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "ast_node_count": nll_node_count_val,
-        "data_structure_used": "NLL"
+        "ast_node_count": nll_node_count,
     }
+
+def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):
+    steps_list.append({
+        "id": f"step_{len(steps_list)}_{rule_key}",
+        "prefix": prefix,
+        "parts": [{"latex": latex(expr), "rule_id": rule_key, "explanation_key": rule_key}],
+        "explanation_text": explanation
+    })
+

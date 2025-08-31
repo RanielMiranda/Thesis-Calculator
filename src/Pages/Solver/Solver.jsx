@@ -11,7 +11,7 @@ import MeasurementDisplay from './MeasurementDisplay.jsx';
 
 const Solver = () => {
     // State for user input, expression, and configuration
-    const [input, setInput] = React.useState('sin(x^2) + cos(x)');
+    const [input, setInput] = React.useState('');
     const [derivative, setDerivative] = React.useState('');
     const [dataStructure, setDataStructure] = React.useState('AST');
     const [variable, setVariable] = React.useState('x');
