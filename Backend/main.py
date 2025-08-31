@@ -40,10 +40,6 @@ class GenerationInput(BaseModel):
 
 @app.post("/solve")
 async def solve_derivative(input_data: ExpressionInput):
-    """
-    Receives an expression, variable, and data structure type,
-    and returns the step-by-step derivative.
-    """
     logger.debug(f"Received solve request: Expression='{input_data.expression}', Var='{input_data.variable}', DS='{input_data.data_structure}'")
     try:
         result_data = None
@@ -71,9 +67,6 @@ async def solve_derivative(input_data: ExpressionInput):
 
 @app.post("/generate")
 async def generate_expression_endpoint(input_data: GenerationInput):
-    """
-    Generates a random mathematical expression based on specified parameters.
-    """
     logger.debug(f"Received generate request with parameters: {input_data}")
     try:
         expression_str, expression_latex = generate_random_expression(

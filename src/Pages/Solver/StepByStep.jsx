@@ -26,12 +26,6 @@ const stepExplanation = {
     "cached_subexpr": "This sub-expression was already differentiated earlier, so we are reusing the cached result for efficiency."
 };
 
-/**
- * Extracts the base rule name from a detailed rule key from the backend.
- * e.g., "sumRule_start" -> "sumRule"
- * @param {string} key - The detailed rule key.
- * @returns {string|null} The base rule name.
- */
 const getBaseRule = (key) => {
     if (!key) return null;
     const base = key.split('_')[0];

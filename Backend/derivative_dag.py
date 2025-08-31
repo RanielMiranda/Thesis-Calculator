@@ -2,41 +2,44 @@ import logging
 import re
 import time
 import tracemalloc
-from typing import List, Dict, Optional
-from functools import lru_cache
+from typing import List, Dict, Optional, Tuple
 
 # --- SymPy Imports ---
 from sympy import (
     Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
-    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, Derivative
+    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, diff
 )
+from sympy.core.numbers import Number
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# --- Caching for Performance ---
-@lru_cache(maxsize=8192)
-def _cached_latex(expr):
-    """Caches the LaTeX representation of a SymPy expression."""
-    try:
-        return latex(expr)
-    except Exception:
-        return str(expr)
+# --- DAG Data Structure ---
+class DAGNode:
+    def __init__(self, value, children: Optional[Tuple['DAGNode', ...]] = None):
+        self.value = value
+        self.children = children or tuple()
+        self._hash = None
 
-@lru_cache(maxsize=None)
-def _diff_value_cached(expr, var):
-    """Caches the result of a derivative computation fallback."""
-    return Derivative(expr, var, evaluate=True).doit()
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash((self.value, self.children))
+        return self._hash
 
-# --- Manual Tokenizer and Parser ---
-# Duplicated here to ensure the DAG module is self-contained and the
-# parsing process is included in its performance measurement.
+    def __eq__(self, other):
+        if not isinstance(other, DAGNode):
+            return NotImplemented
+        return self.value == other.value and self.children == other.children
 
+    def __repr__(self):
+        return f"DAGNode({self.value}, children={self.children})"
+
+# --- Tokenizer and Parser ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
 TOKEN_OPERATOR = 'OPERATOR'
-TOKEN_LPAREN = 'LPAREN'
+TOKEN_LPAREN = 'LPAPAREN'
 TOKEN_RPAREN = 'RPAREN'
 TOKEN_EOF = 'EOF'
 
@@ -162,168 +165,177 @@ class Parser:
         raise ValueError(f"Unexpected token: {token}")
 
 # --- Helper Functions ---
-def _add_step(steps_list, latex_or_expr, rule_key, explanation, prefix="= "):
-    expr_latex = latex_or_expr if isinstance(latex_or_expr, str) else _cached_latex(latex_or_expr)
+def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):
     steps_list.append({
         "id": f"step_{len(steps_list)}_{rule_key}",
         "prefix": prefix,
-        "parts": [{"latex": expr_latex, "rule_id": rule_key, "explanation_key": rule_key}],
+        "parts": [{"latex": latex(expr), "rule_id": rule_key, "explanation_key": rule_key}],
         "explanation_text": explanation
     })
 
-# --- Main DAG Differentiator ---
-def compute_derivative_dag(expression_str: str, variable_str: str):
-    """
-    Computes a derivative using a DAG-like approach with caching.
-    The entire process, including parsing, is measured.
-    """
-    steps = []
-    session_cache = {}  # Cache for this specific solve request
+def parse_sympy_to_dag(expr, node_map: Dict[SympySymbol, 'DAGNode']):
+    if expr in node_map:
+        return node_map[expr]
 
-    # --- Performance Measurement Start ---
+    if not hasattr(expr, 'args') or not expr.args:
+        node = DAGNode(expr)
+        node_map[expr] = node
+        return node
+
+    children = tuple(parse_sympy_to_dag(arg, node_map) for arg in expr.args)
+    node = DAGNode(expr.func, children)
+    node_map[expr] = node
+    return node
+
+def dag_to_sympy(node):
+    if not node.children:
+        return node.value
+    return node.value(*[dag_to_sympy(child) for child in node.children])
+
+def compute_derivative_dag(expression_str: str, variable_str: str):
+    steps = []
+
+    def _add_step_dag(expr_node, rule_key, explanation, prefix="= "):
+        _add_step(steps, dag_to_sympy(expr_node), rule_key, explanation, prefix)
+
     tracemalloc.start()
     start_time = time.perf_counter()
 
     try:
-        # 1. Parse the string into a SymPy expression tree
         tokenizer = Tokenizer(expression_str)
         variable_symbol = SympySymbol(variable_str)
         parser = Parser(tokenizer, {variable_str: variable_symbol})
         sympy_expr = parser.parse()
 
-        _add_step(steps, sympy_expr, "initial_expression", "Differentiating: ",
-                  prefix=f"\\frac{{d}}{{d{_cached_latex(variable_symbol)}}}")
+        dag_node_map = {}
+        dag_tree = parse_sympy_to_dag(sympy_expr, dag_node_map)
 
-        # 2. Differentiate recursively with caching (simulating DAG)
-        def _differentiate_recursive_dag(expression):
-            key = (expression, variable_symbol)
-            if key in session_cache:
-                cached_val = session_cache[key]
-                _add_step(steps, cached_val, "cached_subexpr", f"Using cached derivative for {_cached_latex(expression)}")
-                return cached_val
+        _add_step_dag(dag_tree, "initial_expression", "Differentiating:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
+
+        memo = {}
+        def _compute_dag_derivative_recursive(node, var):
+            if node in memo:
+                return memo[node]
             
-            # Base Cases
-            if not expression.has(variable_symbol):
-                result = S.Zero
-                _add_step(steps, result, "constantRule", "The derivative of a constant is 0.")
-            elif expression == variable_symbol:
-                result = S.One
-                _add_step(steps, result, "variableRule", f"The derivative of {variable_str} with respect to itself is 1.")
-            
-            # Recursive Rules
-            elif isinstance(expression, Add):
-                _add_step(steps, expression, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
-                d_terms = [_differentiate_recursive_dag(arg) for arg in expression.args]
-                result = Add(*d_terms)
-                _add_step(steps, result, "sumRule_result", "The sum of the derivatives is:")
-            
-            elif isinstance(expression, Mul):
-                const_terms = [a for a in expression.args if not a.has(variable_symbol)]
-                non_const_terms = [a for a in expression.args if a.has(variable_symbol)]
-                if const_terms and non_const_terms:
-                    c = Mul(*const_terms); f = Mul(*non_const_terms)
-                    _add_step(steps, expression, "constantMultipleRule_start", "Applying the Constant Multiple Rule: (c*f)' = c*f'")
-                    df = _differentiate_recursive_dag(f)
-                    result = Mul(c, df)
-                    _add_step(steps, result, "constantMultipleRule_result", "The result of the Constant Multiple Rule is:")
-                elif len(non_const_terms) == 2 and not const_terms:
-                    u, v = non_const_terms
-                    _add_step(steps, expression, "productRule_start", "Applying the Product Rule: (uv)' = u'v + uv'")
-                    du, dv = _differentiate_recursive_dag(u), _differentiate_recursive_dag(v)
-                    result = Add(Mul(du, v), Mul(u, dv))
-                    _add_step(steps, result, "productRule_result", "The result of the Product Rule is:")
+            # --- Base cases ---
+            if not node.children:
+                sympy_node = dag_to_sympy(node)
+                if sympy_node == var:
+                    _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
+                    result = DAGNode(S.One)
+                elif isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(sympy_node)} is 0.")
+                    result = DAGNode(S.Zero)
                 else:
-                    _add_step(steps, expression, "general_product_fallback", "Using a general product rule or fallback.")
-                    result = _diff_value_cached(expression, variable_symbol)
-
-            elif isinstance(expression, Pow):
-                base, exponent = expression.args
-                _add_step(steps, expression, "powerRule_start", "Applying the Power Rule or related rules.")
-                if not exponent.has(variable_symbol):
-                    dbase = _differentiate_recursive_dag(base)
-                    result = Mul(exponent, Pow(base, exponent - 1), dbase)
-                    _add_step(steps, result, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
-                elif not base.has(variable_symbol):
-                    dexp = _differentiate_recursive_dag(exponent)
-                    result = Mul(expression, log(base), dexp)
-                    _add_step(steps, result, "expRule_result", "Result of the Exponential Rule (a^u)' = a^u * ln(a) * u':")
-                else:
-                    _add_step(steps, expression, "general_power_fallback", "Using a general power rule (logarithmic differentiation) fallback.")
-                    result = _diff_value_cached(expression, variable_symbol)
-
-            elif isinstance(expression, sin):
-                u = expression.args[0]
-                _add_step(steps, expression, "sinRule_start", "Applying the Chain Rule for sin(u): d/dx(sin(u)) = cos(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(cos(u), du)
-                _add_step(steps, result, "sinRule_result", "The result for the sine function is:")
-            elif isinstance(expression, cos):
-                u = expression.args[0]
-                _add_step(steps, expression, "cosRule_start", "Applying the Chain Rule for cos(u): d/dx(cos(u)) = -sin(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(S.NegativeOne, sin(u), du)
-                _add_step(steps, result, "cosRule_result", "The result for the cosine function is:")
-            elif isinstance(expression, tan):
-                u = expression.args[0]
-                _add_step(steps, expression, "tanRule_start", "Applying the Chain Rule for tan(u): d/dx(tan(u)) = sec^2(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(Pow(sec(u), 2), du)
-                _add_step(steps, result, "tanRule_result", "The result for the tangent function is:")
-            elif isinstance(expression, exp):
-                u = expression.args[0]
-                _add_step(steps, expression, "expRule_start", "Applying the Chain Rule for exp(u): d/dx(e^u) = e^u * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(exp(u), du)
-                _add_step(steps, result, "expRule_result", "The result for the exponential function is:")
-            elif isinstance(expression, log):
-                u = expression.args[0]
-                _add_step(steps, expression, "logRule_start", "Applying the Chain Rule for log(u): d/dx(ln(u)) = (1/u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(Pow(u, -1), du)
-                _add_step(steps, result, "logRule_result", "The result for the logarithm function is:")
-            elif isinstance(expression, sec):
-                u = expression.args[0]
-                _add_step(steps, expression, "secRule_start", "Applying the Chain Rule for sec(u): d/dx(sec(u)) = sec(u)tan(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(sec(u), tan(u), du)
-                _add_step(steps, result, "secRule_result", "The result for the secant function is:")
-            elif isinstance(expression, csc):
-                u = expression.args[0]
-                _add_step(steps, expression, "cscRule_start", "Applying the Chain Rule for csc(u): d/dx(csc(u)) = -csc(u)cot(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(S.NegativeOne, csc(u), cot(u), du)
-                _add_step(steps, result, "cscRule_result", "The result for the cosecant function is:")
-            elif isinstance(expression, cot):
-                u = expression.args[0]
-                _add_step(steps, expression, "cotRule_start", "Applying the Chain Rule for cot(u): d/dx(cot(u)) = -csc^2(u) * u'")
-                du = _differentiate_recursive_dag(u)
-                result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
-                _add_step(steps, result, "cotRule_result", "The result for the cotangent function is:")
-
-            else:
-                _add_step(steps, expression, "unknownRule_sympy_fallback", "No specific rule matched. Using a fallback.")
-                result = _diff_value_cached(expression, variable_symbol)
+                    derivative_segment = diff(sympy_node, var)
+                    _add_step(steps, derivative_segment, "leaf_fallback", f"Fallback for leaf node {latex(sympy_node)}.")
+                    result = parse_sympy_to_dag(derivative_segment, dag_node_map) # Cache and re-use
+                memo[node] = result
+                return result
             
-            session_cache[key] = result
+            op = node.value
+            args = node.children
+
+            # --- Operator rules ---
+            if op == Add:
+                _add_step_dag(node, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                result_children = tuple(_compute_dag_derivative_recursive(arg, var) for arg in args)
+                result_node = DAGNode(Add, result_children)
+                _add_step_dag(result_node, "sumRule_result", "The sum of the derivatives is:")
+                memo[node] = result_node
+                return result_node
+            
+            if op == Mul:
+                _add_step_dag(node, "productRule_start", "Applying the Product Rule.")
+                terms = []
+                for i in range(len(args)):
+                    d_terms = []
+                    for j, child in enumerate(args):
+                        d_terms.append(_compute_dag_derivative_recursive(child, var) if i == j else child)
+                    terms.append(DAGNode(Mul, tuple(d_terms)))
+                result_node = DAGNode(Add, tuple(terms))
+                _add_step_dag(result_node, "productRule_result", "The result of the Product Rule is:")
+                memo[node] = result_node
+                return result_node
+
+            if op == Pow:
+                _add_step_dag(node, "powerRule_start", "Applying the Power Rule or related rules.")
+                base, exp_node = args
+                if not dag_to_sympy(exp_node).has(var):
+                    du = _compute_dag_derivative_recursive(base, var)
+                    new_exp = parse_sympy_to_dag(dag_to_sympy(exp_node) - 1, dag_node_map)
+                    result_node = DAGNode(Mul, (exp_node, DAGNode(Pow, (base, new_exp)), du))
+                    _add_step_dag(result_node, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                    memo[node] = result_node
+                    return result_node
+
+            def apply_chain_rule(rule_name, display_rule, result_func):
+                u_node = args[0]
+                _add_step_dag(node, f"{rule_name}Rule_start", f"Applying the Chain Rule for {rule_name}(u): {display_rule}")
+                du_node = _compute_dag_derivative_recursive(u_node, var)
+                result_node = result_func(u_node, du_node)
+                _add_step_dag(result_node, f"{rule_name}Rule_result", f"The result for the {rule_name} function is:")
+                return result_node
+
+            if op == sin:
+                result = apply_chain_rule("sin", r"$cos(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
+                memo[node] = result
+                return result
+            if op == cos:
+                result = apply_chain_rule("cos", r"$-sin(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
+                memo[node] = result
+                return result
+            if op == tan:
+                result = apply_chain_rule("tan", r"$sec^2(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
+                memo[node] = result
+                return result
+            if op == sec:
+                result = apply_chain_rule("sec", r"$sec(u)tan(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
+                memo[node] = result
+                return result
+            if op == csc:
+                result = apply_chain_rule("csc", r"$-csc(u)cot(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
+                memo[node] = result
+                return result
+            if op == cot:
+                result = apply_chain_rule("cot", r"$-csc^2(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
+                memo[node] = result
+                return result
+            if op == exp:
+                result = apply_chain_rule("exp", r"$e^u \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
+                memo[node] = result
+                return result
+            if op == log:
+                result = apply_chain_rule("log", r"$(\frac{1}{u}) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
+                memo[node] = result
+                return result
+
+            # --- Fallback ---
+            sympy_segment = dag_to_sympy(node)
+            _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific DAG rule matched. Using a fallback.")
+            derivative_segment = diff(sympy_segment, var)
+            result = parse_sympy_to_dag(derivative_segment, dag_node_map)
+            memo[node] = result
             return result
-
-        final_derivative = _differentiate_recursive_dag(sympy_expr)
+        
+        differentiated_dag = _compute_dag_derivative_recursive(dag_tree, variable_symbol)
+        final_derivative = dag_to_sympy(differentiated_dag)
 
     finally:
-        # --- Performance Measurement End ---
         end_time = time.perf_counter()
         _, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-
+    
     _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
     
-    dag_node_count = len(session_cache)
-    
+    dag_node_count = len(dag_node_map)
+
     return {
-        "derivative_latex": _cached_latex(final_derivative),
+        "derivative_latex": latex(final_derivative),
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "ast_node_count": dag_node_count,
+        "dag_node_count": dag_node_count,
     }
 
+    

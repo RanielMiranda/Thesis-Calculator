@@ -14,14 +14,13 @@ from sympy.core.numbers import Number
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# --- Custom NLL Data Structure ---
+# ---  NLL Data Structure ---
 class NLLNode:
-    """A node for the Nested Linked List representation of an expression."""
     def __init__(self, value, children=None):
         self.value = value
         self.children = children or []
 
-# --- Manual Tokenizer and Parser (included for measurement) ---
+# --- Tokenizer and Parser ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
@@ -154,22 +153,16 @@ class Parser:
 # --- NLL Conversion and Computation Logic ---
 
 def parse_sympy_to_nll(expr):
-    """Converts a SymPy expression into an NLLNode tree."""
     if not hasattr(expr, 'args') or not expr.args:
         return NLLNode(expr)
     return NLLNode(expr.func, [parse_sympy_to_nll(arg) for arg in expr.args])
 
 def node_to_sympy(node):
-    """Converts an NLLNode tree back into a SymPy expression."""
     if not node.children:
         return node.value
     return node.value(*[node_to_sympy(child) for child in node.children])
 
 def compute_derivative_nll(expression_str: str, variable_str: str):
-    """
-    Computes a derivative using a custom NLL data structure.
-    The process of parsing and converting to NLL is included in the measurement.
-    """
     steps = []
 
     def _add_step_nll(expr_node, rule_key, explanation):

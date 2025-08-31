@@ -143,9 +143,6 @@ const Solver = () => {
         return converted;
     }
 
-    /**
-     * Fetches a randomly generated mathematical expression from the backend.
-     */
     const generateExpression = async () => {
         setErrorMessage('');
         try {
@@ -175,9 +172,6 @@ const Solver = () => {
         }
     };
 
-    /**
-     * Clears the input field and any previous results or errors.
-     */
     const clearInput = () => {
         setInput('');
         setDerivative('');

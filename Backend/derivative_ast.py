@@ -3,41 +3,29 @@ import re
 import time
 import tracemalloc
 from typing import List, Dict, Optional
-from functools import lru_cache
 
 # --- SymPy Imports ---
-# Import specific SymPy components to build the expression tree manually
 from sympy import (
     Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
-    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, Derivative
+    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, diff
 )
+from sympy.core.numbers import Number
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# --- Caching for Performance ---
-@lru_cache(maxsize=8192)
-def _cached_latex(expr):
-    """Caches the LaTeX representation of a SymPy expression."""
-    try:
-        return latex(expr)
-    except Exception:
-        return str(expr)
+# --- Custom AST Data Structure ---
+class ASTNode:
+    def __init__(self, value, children=None):
+        self.value = value
+        self.children = children or []
 
-@lru_cache(maxsize=None)
-def _diff_value_cached(expr, var):
-    """Caches the result of a derivative computation fallback."""
-    return Derivative(expr, var, evaluate=True).doit()
-
-# --- Manual Tokenizer and Parser ---
-# These classes are responsible for converting the input string into an expression tree.
-# This entire process is now included in the performance measurement for this module.
-
+# --- Manual Tokenizer and Parser (included for measurement) ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
 TOKEN_OPERATOR = 'OPERATOR'
-TOKEN_LPAREN = 'LPAREN'
+TOKEN_LPAREN = 'LPAPAREN'
 TOKEN_RPAREN = 'RPAREN'
 TOKEN_EOF = 'EOF'
 
@@ -56,7 +44,7 @@ class Tokenizer:
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
         (r'\(', TOKEN_LPAREN),
         (r'\)', TOKEN_RPAREN),
-        (r'\s+', None),  # Skip whitespace
+        (r'\s+', None),
     ]
 
     def __init__(self, expression_string: str):
@@ -68,21 +56,20 @@ class Tokenizer:
         tokens = []
         position = 0
         while position < len(self.expression_string):
-            match_found = False
+            match = None
             for pattern, token_type in self.TOKEN_SPECS:
                 regex = re.compile(pattern)
                 match = regex.match(self.expression_string, position)
                 if match:
-                    if token_type is not None:
+                    if token_type:
                         tokens.append(Token(token_type, match.group(0)))
                     position = match.end(0)
-                    match_found = True
                     break
-            if not match_found:
+            if not match:
                 raise ValueError(f"Unexpected character at position {position}")
         tokens.append(Token(TOKEN_EOF, ''))
         return tokens
-
+    
     def next(self) -> Token:
         if self.current_token_index < len(self.tokens):
             token = self.tokens[self.current_token_index]
@@ -134,7 +121,6 @@ class Parser:
         node = self._atom()
         if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
             self._eat(TOKEN_OPERATOR)
-            # Right-associativity for power
             right = self._factor()
             node = Pow(node, right)
         return node
@@ -165,170 +151,134 @@ class Parser:
         raise ValueError(f"Unexpected token: {token}")
 
 # --- Helper Functions ---
-def _add_step(steps_list, latex_or_expr, rule_key, explanation, prefix="= "):
-    """Utility to format and add a step to the explanation list."""
-    expr_latex = latex_or_expr if isinstance(latex_or_expr, str) else _cached_latex(latex_or_expr)
+def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):
     steps_list.append({
         "id": f"step_{len(steps_list)}_{rule_key}",
         "prefix": prefix,
-        "parts": [{"latex": expr_latex, "rule_id": rule_key, "explanation_key": rule_key}],
+        "parts": [{"latex": latex(expr), "rule_id": rule_key, "explanation_key": rule_key}],
         "explanation_text": explanation
     })
 
-# --- Main AST Differentiator ---
-def compute_derivative_ast(expression_str: str, variable_str: str):
-    """
-    Computes a derivative using AST traversal. The entire process, including
-    parsing the expression string, is measured for performance.
-    """
-    steps = []
-    local_cache = {}  # Memoization for derivative sub-problems
+def parse_sympy_to_ast(expr):
+    if not hasattr(expr, 'args') or not expr.args:
+        return ASTNode(expr)
+    return ASTNode(expr.func, [parse_sympy_to_ast(arg) for arg in expr.args])
 
-    # --- Performance Measurement Start ---
+def node_to_sympy(node):
+    if not node.children:
+        return node.value
+    return node.value(*[node_to_sympy(child) for child in node.children])
+
+def compute_derivative_ast(expression_str: str, variable_str: str):
+    steps = []
+
+    def _add_step_ast(expr_node, rule_key, explanation, prefix="= "):
+        _add_step(steps, node_to_sympy(expr_node), rule_key, explanation, prefix)
+
     tracemalloc.start()
     start_time = time.perf_counter()
-    
+
     try:
-        # 1. Parse the string into a SymPy expression tree
         tokenizer = Tokenizer(expression_str)
         variable_symbol = SympySymbol(variable_str)
         parser = Parser(tokenizer, {variable_str: variable_symbol})
         sympy_expr = parser.parse()
+        ast_tree = parse_sympy_to_ast(sympy_expr)
 
-        # Initial step for the UI
-        _add_step(steps, sympy_expr, "initial_expression", "Differentiating: ",
-                  prefix=f"\\frac{{d}}{{d{_cached_latex(variable_symbol)}}}")
-
-        # 2. Recursively compute the derivative
-        def _rec(expr):
-            key = (expr, variable_symbol)
-            if key in local_cache:
-                cached_value = local_cache[key]
-                _add_step(steps, cached_value, "cached_subexpr", f"Using cached derivative for {_cached_latex(expr)}")
-                return cached_value
-
-            # Base Cases
-            if not expr.has(variable_symbol):
-                result = S.Zero
-                _add_step(steps, result, "constantRule", "The derivative of a constant is 0.")
-            elif expr == variable_symbol:
-                result = S.One
-                _add_step(steps, result, "variableRule", f"The derivative of {variable_str} with respect to itself is 1.")
-            # Recursive Rules
-            elif isinstance(expr, Add):
-                _add_step(steps, expr, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
-                d_terms = [_rec(arg) for arg in expr.args]
-                result = Add(*d_terms)
-                _add_step(steps, result, "sumRule_result", "The sum of the derivatives is:")
+        _add_step_ast(ast_tree, "initial_expression", "Differentiating:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
+        
+        def _compute_ast_derivative_recursive(node, var):
+            if not node.children:
+                sympy_node = node_to_sympy(node)
+                if sympy_node == var:
+                    _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
+                    return ASTNode(S.One)
+                if isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(sympy_node)} is 0.")
+                    return ASTNode(S.Zero)
+                
+                derivative_segment = diff(sympy_node, var)
+                _add_step(steps, derivative_segment, "leaf_fallback", f"Fallback for leaf node {latex(sympy_node)}.")
+                return parse_sympy_to_ast(derivative_segment)
             
-            elif isinstance(expr, Mul):
-                const_terms = [a for a in expr.args if not a.has(variable_symbol)]
-                non_const_terms = [a for a in expr.args if a.has(variable_symbol)]
-                if const_terms and non_const_terms:
-                    c = Mul(*const_terms)
-                    f = Mul(*non_const_terms)
-                    _add_step(steps, expr, "constantMultipleRule_start", "Applying the Constant Multiple Rule: (c*f)' = c*f'")
-                    df = _rec(f)
-                    result = Mul(c, df)
-                    _add_step(steps, result, "constantMultipleRule_result", "The result of the Constant Multiple Rule is:")
-                elif len(non_const_terms) == 2 and not const_terms:
-                    u, v = non_const_terms
-                    _add_step(steps, expr, "productRule_start", "Applying the Product Rule: (uv)' = u'v + uv'")
-                    du, dv = _rec(u), _rec(v)
-                    result = Add(Mul(du, v), Mul(u, dv))
-                    _add_step(steps, result, "productRule_result", "The result of the Product Rule is:")
-                else:
-                    _add_step(steps, expr, "general_product_fallback", "Using a general product rule or fallback.")
-                    result = _diff_value_cached(expr, variable_symbol)
-
-            elif isinstance(expr, Pow):
-                base, exponent = expr.args
-                _add_step(steps, expr, "powerRule_start", "Applying the Power Rule or related rules.")
-                if not exponent.has(variable_symbol):
-                    dbase = _rec(base)
-                    result = Mul(exponent, Pow(base, exponent - 1), dbase)
-                    _add_step(steps, result, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
-                elif not base.has(variable_symbol):
-                    dexp = _rec(exponent)
-                    result = Mul(expr, log(base), dexp)
-                    _add_step(steps, result, "expRule_result", "Result of the Exponential Rule (a^u)' = a^u * ln(a) * u':")
-                else:
-                    _add_step(steps, expr, "general_power_fallback", "Using a general power rule (logarithmic differentiation) fallback.")
-                    result = _diff_value_cached(expr, variable_symbol)
-
-            elif isinstance(expr, sin):
-                u = expr.args[0]
-                _add_step(steps, expr, "sinRule_start", "Applying the Chain Rule for sin(u): d/dx(sin(u)) = cos(u) * u'")
-                du = _rec(u)
-                result = Mul(cos(u), du)
-                _add_step(steps, result, "sinRule_result", "The result for the sine function is:")
-            elif isinstance(expr, cos):
-                u = expr.args[0]
-                _add_step(steps, expr, "cosRule_start", "Applying the Chain Rule for cos(u): d/dx(cos(u)) = -sin(u) * u'")
-                du = _rec(u)
-                result = Mul(S.NegativeOne, sin(u), du)
-                _add_step(steps, result, "cosRule_result", "The result for the cosine function is:")
-            elif isinstance(expr, tan):
-                u = expr.args[0]
-                _add_step(steps, expr, "tanRule_start", "Applying the Chain Rule for tan(u): d/dx(tan(u)) = sec^2(u) * u'")
-                du = _rec(u)
-                result = Mul(Pow(sec(u), 2), du)
-                _add_step(steps, result, "tanRule_result", "The result for the tangent function is:")
-            elif isinstance(expr, exp):
-                u = expr.args[0]
-                _add_step(steps, expr, "expRule_start", "Applying the Chain Rule for exp(u): d/dx(e^u) = e^u * u'")
-                du = _rec(u)
-                result = Mul(exp(u), du)
-                _add_step(steps, result, "expRule_result", "The result for the exponential function is:")
-            elif isinstance(expr, log):
-                u = expr.args[0]
-                _add_step(steps, expr, "logRule_start", "Applying the Chain Rule for log(u): d/dx(ln(u)) = (1/u) * u'")
-                du = _rec(u)
-                result = Mul(Pow(u, -1), du)
-                _add_step(steps, result, "logRule_result", "The result for the logarithm function is:")
-            elif isinstance(expr, sec):
-                u = expr.args[0]
-                _add_step(steps, expr, "secRule_start", "Applying the Chain Rule for sec(u): d/dx(sec(u)) = sec(u)tan(u) * u'")
-                du = _rec(u)
-                result = Mul(sec(u), tan(u), du)
-                _add_step(steps, result, "secRule_result", "The result for the secant function is:")
-            elif isinstance(expr, csc):
-                u = expr.args[0]
-                _add_step(steps, expr, "cscRule_start", "Applying the Chain Rule for csc(u): d/dx(csc(u)) = -csc(u)cot(u) * u'")
-                du = _rec(u)
-                result = Mul(S.NegativeOne, csc(u), cot(u), du)
-                _add_step(steps, result, "cscRule_result", "The result for the cosecant function is:")
-            elif isinstance(expr, cot):
-                u = expr.args[0]
-                _add_step(steps, expr, "cotRule_start", "Applying the Chain Rule for cot(u): d/dx(cot(u)) = -csc^2(u) * u'")
-                du = _rec(u)
-                result = Mul(S.NegativeOne, Pow(csc(u), 2), du)
-                _add_step(steps, result, "cotRule_result", "The result for the cotangent function is:")
+            op = node.value
+            args = node.children
             
-            else:
-                _add_step(steps, expr, "unknownRule_sympy_fallback", "No specific rule matched. Using a fallback.")
-                result = _diff_value_cached(expr, variable_symbol)
+            if op == Add:
+                _add_step_ast(node, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                result_node = ASTNode(Add, [_compute_ast_derivative_recursive(arg, var) for arg in args])
+                _add_step_ast(result_node, "sumRule_result", "The sum of the derivatives is:")
+                return result_node
+            
+            if op == Mul:
+                _add_step_ast(node, "productRule_start", "Applying the Product Rule.")
+                terms = []
+                for i in range(len(args)):
+                    d_terms = []
+                    for j, child in enumerate(args):
+                        d_terms.append(_compute_ast_derivative_recursive(child, var) if i == j else child)
+                    terms.append(ASTNode(Mul, d_terms))
+                result_node = ASTNode(Add, terms)
+                _add_step_ast(result_node, "productRule_result", "The result of the Product Rule is:")
+                return result_node
 
-            local_cache[key] = result
-            return result
+            if op == Pow:
+                _add_step_ast(node, "powerRule_start", "Applying the Power Rule or related rules.")
+                base, exp_node = args
+                if not node_to_sympy(exp_node).has(var):
+                    du = _compute_ast_derivative_recursive(base, var)
+                    new_exp = parse_sympy_to_ast(node_to_sympy(exp_node) - 1)
+                    result_node = ASTNode(Mul, [exp_node, ASTNode(Pow, [base, new_exp]), du])
+                    _add_step_ast(result_node, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                    return result_node
 
-        final_derivative = _rec(sympy_expr)
+            def apply_chain_rule(rule_name, display_rule, result_func):
+                u_node = args[0]
+                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the Chain Rule for {rule_name}(u): {display_rule}")
+                du_node = _compute_ast_derivative_recursive(u_node, var)
+                result_node = result_func(u_node, du_node)
+                _add_step_ast(result_node, f"{rule_name}Rule_result", f"The result for the {rule_name} function is:")
+                return result_node
+
+            if op == sin:
+                return apply_chain_rule("sin", r"$cos(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
+            if op == cos:
+                return apply_chain_rule("cos", r"$-sin(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
+            if op == tan:
+                return apply_chain_rule("tan", r"$sec^2(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
+            if op == sec:
+                return apply_chain_rule("sec", r"$sec(u)tan(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
+            if op == csc:
+                return apply_chain_rule("csc", r"$-csc(u)cot(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
+            if op == cot:
+                return apply_chain_rule("cot", r"$-csc^2(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
+            if op == exp:
+                return apply_chain_rule("exp", r"$e^u \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
+            if op == log:
+                return apply_chain_rule("log", r"$(\frac{1}{u}) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
+
+            sympy_segment = node_to_sympy(node)
+            _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific AST rule matched. Using a fallback.")
+            derivative_segment = diff(sympy_segment, var)
+            return parse_sympy_to_ast(derivative_segment)
+
+        differentiated_ast = _compute_ast_derivative_recursive(ast_tree, variable_symbol)
+        final_derivative = node_to_sympy(differentiated_ast)
 
     finally:
-        # --- Performance Measurement End ---
         end_time = time.perf_counter()
-        current_memory, peak_memory = tracemalloc.get_traced_memory()
+        _, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-
+    
     _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
     
-    ast_node_count = len(list(sympy_expr.preorder_traversal())) if hasattr(sympy_expr, 'preorder_traversal') else -1
-    
+    def count_nodes(node): return 1 + sum(count_nodes(child) for child in node.children)
+    ast_node_count = count_nodes(ast_tree)
+
     return {
-        "derivative_latex": _cached_latex(final_derivative),
+        "derivative_latex": latex(final_derivative),
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
         "ast_node_count": ast_node_count,
     }
-
