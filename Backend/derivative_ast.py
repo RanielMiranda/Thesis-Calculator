@@ -241,21 +241,21 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
                 return result_node
 
             if op == sin:
-                return apply_chain_rule("sin", r"$cos(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
+                return apply_chain_rule("sin", r"", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
             if op == cos:
-                return apply_chain_rule("cos", r"$-sin(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
+                return apply_chain_rule("cos", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
             if op == tan:
-                return apply_chain_rule("tan", r"$sec^2(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
+                return apply_chain_rule("tan", r"", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
             if op == sec:
-                return apply_chain_rule("sec", r"$sec(u)tan(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
+                return apply_chain_rule("sec", r"", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
             if op == csc:
-                return apply_chain_rule("csc", r"$-csc(u)cot(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
+                return apply_chain_rule("csc", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
             if op == cot:
-                return apply_chain_rule("cot", r"$-csc^2(u) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
+                return apply_chain_rule("cot", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
             if op == exp:
-                return apply_chain_rule("exp", r"$e^u \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
+                return apply_chain_rule("exp", r"", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
             if op == log:
-                return apply_chain_rule("log", r"$(\frac{1}{u}) \cdot u'$", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
+                return apply_chain_rule("log", r"", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
 
             sympy_segment = node_to_sympy(node)
             _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific AST rule matched. Using a fallback.")

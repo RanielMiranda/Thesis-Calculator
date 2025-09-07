@@ -237,21 +237,21 @@ def compute_derivative_nll(expression_str: str, variable_str: str):
                 return result_node
 
             if op == sin:
-                return apply_chain_rule("sin", "cos(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(cos, [u]), du]))
+                return apply_chain_rule("sin", "", lambda u, du: NLLNode(Mul, [NLLNode(cos, [u]), du]))
             if op == cos:
-                return apply_chain_rule("cos", "-sin(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(sin, [u]), du]))
+                return apply_chain_rule("cos", "", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(sin, [u]), du]))
             if op == tan:
-                return apply_chain_rule("tan", "sec^2(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [NLLNode(sec, [u]), NLLNode(S(2))]), du]))
+                return apply_chain_rule("tan", "", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [NLLNode(sec, [u]), NLLNode(S(2))]), du]))
             if op == sec:
-                return apply_chain_rule("sec", "sec(u)tan(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(sec, [u]), NLLNode(tan, [u]), du]))
+                return apply_chain_rule("sec", "", lambda u, du: NLLNode(Mul, [NLLNode(sec, [u]), NLLNode(tan, [u]), du]))
             if op == csc:
-                return apply_chain_rule("csc", "-csc(u)cot(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(csc, [u]), NLLNode(cot, [u]), du]))
+                return apply_chain_rule("csc", "", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(csc, [u]), NLLNode(cot, [u]), du]))
             if op == cot:
-                return apply_chain_rule("cot", "-csc^2(u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(Pow, [NLLNode(csc, [u]), NLLNode(S(2))]), du]))
+                return apply_chain_rule("cot", "", lambda u, du: NLLNode(Mul, [NLLNode(S.NegativeOne), NLLNode(Pow, [NLLNode(csc, [u]), NLLNode(S(2))]), du]))
             if op == exp:
-                return apply_chain_rule("exp", "e^u * u'", lambda u, du: NLLNode(Mul, [NLLNode(exp, [u]), du]))
+                return apply_chain_rule("exp", "", lambda u, du: NLLNode(Mul, [NLLNode(exp, [u]), du]))
             if op == log:
-                return apply_chain_rule("log", "(1/u) * u'", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [u, NLLNode(S.NegativeOne)]), du]))
+                return apply_chain_rule("log", "", lambda u, du: NLLNode(Mul, [NLLNode(Pow, [u, NLLNode(S.NegativeOne)]), du]))
 
             sympy_segment = node_to_sympy(node)
             _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific NLL rule matched. Using a fallback.")
@@ -276,7 +276,7 @@ def compute_derivative_nll(expression_str: str, variable_str: str):
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "ast_node_count": nll_node_count,
+        "nll_node_count": nll_node_count,
     }
 
 def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):

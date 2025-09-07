@@ -37,7 +37,6 @@ class GenerationInput(BaseModel):
     variables: Optional[List[str]] = ['x']
 
 # --- API Endpoints ---
-
 @app.post("/solve")
 async def solve_derivative(input_data: ExpressionInput):
     logger.debug(f"Received solve request: Expression='{input_data.expression}', Var='{input_data.variable}', DS='{input_data.data_structure}'")

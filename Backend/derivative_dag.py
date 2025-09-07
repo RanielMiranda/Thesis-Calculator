@@ -14,7 +14,7 @@ from sympy.core.numbers import Number
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# --- DAG Data Structure ---
+# --- DAG Node ---
 class DAGNode:
     def __init__(self, value, children: Optional[Tuple['DAGNode', ...]] = None):
         self.value = value
@@ -278,35 +278,35 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
                 return result_node
 
             if op == sin:
-                result = apply_chain_rule("sin", r"$cos(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
+                result = apply_chain_rule("sin", r"", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
                 memo[node] = result
                 return result
             if op == cos:
-                result = apply_chain_rule("cos", r"$-sin(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
+                result = apply_chain_rule("cos", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
                 memo[node] = result
                 return result
             if op == tan:
-                result = apply_chain_rule("tan", r"$sec^2(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
+                result = apply_chain_rule("tan", r"", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
                 memo[node] = result
                 return result
             if op == sec:
-                result = apply_chain_rule("sec", r"$sec(u)tan(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
+                result = apply_chain_rule("sec", r"", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
                 memo[node] = result
                 return result
             if op == csc:
-                result = apply_chain_rule("csc", r"$-csc(u)cot(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
+                result = apply_chain_rule("csc", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
                 memo[node] = result
                 return result
             if op == cot:
-                result = apply_chain_rule("cot", r"$-csc^2(u) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
+                result = apply_chain_rule("cot", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
                 memo[node] = result
                 return result
             if op == exp:
-                result = apply_chain_rule("exp", r"$e^u \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
+                result = apply_chain_rule("exp", r"", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
                 memo[node] = result
                 return result
             if op == log:
-                result = apply_chain_rule("log", r"$(\frac{1}{u}) \cdot u'$", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
+                result = apply_chain_rule("log", r"", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
                 memo[node] = result
                 return result
 

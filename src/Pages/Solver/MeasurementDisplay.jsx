@@ -35,6 +35,7 @@ const MeasurementDisplay = ({ results, isLoading, progress }) => {
        );
     }
 
+    // --- Analysis Section ---
     const analysis = {};
     let bestOverall = { name: '', score: Infinity };
 
