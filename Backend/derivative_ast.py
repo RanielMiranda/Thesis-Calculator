@@ -185,7 +185,7 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
         sympy_expr = parser.parse()
         ast_tree = parse_sympy_to_ast(sympy_expr)
 
-        _add_step_ast(ast_tree, "initial_expression", "Differentiating:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
+        _add_step_ast(ast_tree, "initial_expression", "Differentiating with AST:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
         
         def _compute_ast_derivative_recursive(node, var):
             if not node.children:
@@ -194,7 +194,7 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
                     _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
                     return ASTNode(S.One)
                 if isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(sympy_node)} is 0.")
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant is 0.")
                     return ASTNode(S.Zero)
                 
                 derivative_segment = diff(sympy_node, var)
@@ -205,7 +205,7 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
             args = node.children
             
             if op == Add:
-                _add_step_ast(node, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                _add_step_ast(node, "sumRule_start", "Applying the Sum Rule:")
                 result_node = ASTNode(Add, [_compute_ast_derivative_recursive(arg, var) for arg in args])
                 _add_step_ast(result_node, "sumRule_result", "The sum of the derivatives is:")
                 return result_node
@@ -223,39 +223,40 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
                 return result_node
 
             if op == Pow:
-                _add_step_ast(node, "powerRule_start", "Applying the Power Rule or related rules.")
+                _add_step_ast(node, "powerRule_start", "Applying the Power Rule:")
                 base, exp_node = args
                 if not node_to_sympy(exp_node).has(var):
                     du = _compute_ast_derivative_recursive(base, var)
                     new_exp = parse_sympy_to_ast(node_to_sympy(exp_node) - 1)
                     result_node = ASTNode(Mul, [exp_node, ASTNode(Pow, [base, new_exp]), du])
-                    _add_step_ast(result_node, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                    _add_step_ast(result_node, "powerRule_result", "Result of the Power Rule:")
                     return result_node
-
+            
+            # chain rule
             def apply_chain_rule(rule_name, display_rule, result_func):
                 u_node = args[0]
-                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the Chain Rule for {rule_name}(u): {display_rule}")
+                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule: ")
                 du_node = _compute_ast_derivative_recursive(u_node, var)
                 result_node = result_func(u_node, du_node)
-                _add_step_ast(result_node, f"{rule_name}Rule_result", f"The result for the {rule_name} function is:")
+                _add_step_ast(result_node, f"{rule_name}Rule_result", f"The result for the function is:")
                 return result_node
 
             if op == sin:
-                return apply_chain_rule("sin", r"", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
+                return apply_chain_rule("sin", r"Sine", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
             if op == cos:
-                return apply_chain_rule("cos", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
+                return apply_chain_rule("cos", r"Cosine", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
             if op == tan:
-                return apply_chain_rule("tan", r"", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
+                return apply_chain_rule("tan", r"Tangent", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
             if op == sec:
-                return apply_chain_rule("sec", r"", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
+                return apply_chain_rule("sec", r"Secant", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
             if op == csc:
-                return apply_chain_rule("csc", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
+                return apply_chain_rule("csc", r"Cosecant", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
             if op == cot:
-                return apply_chain_rule("cot", r"", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
+                return apply_chain_rule("cot", r"Cotangent", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
             if op == exp:
-                return apply_chain_rule("exp", r"", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
+                return apply_chain_rule("exp", r"Chain", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
             if op == log:
-                return apply_chain_rule("log", r"", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
+                return apply_chain_rule("log", r"Chain", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
 
             sympy_segment = node_to_sympy(node)
             _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific AST rule matched. Using a fallback.")

@@ -210,7 +210,7 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
         dag_node_map = {}
         dag_tree = parse_sympy_to_dag(sympy_expr, dag_node_map)
 
-        _add_step_dag(dag_tree, "initial_expression", "Differentiating:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
+        _add_step_dag(dag_tree, "initial_expression", "Differentiating with DAG:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
 
         memo = {}
         def _compute_dag_derivative_recursive(node, var):
@@ -224,7 +224,7 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
                     _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
                     result = DAGNode(S.One)
                 elif isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(sympy_node)} is 0.")
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant {latex(sympy_node)} is 0.")
                     result = DAGNode(S.Zero)
                 else:
                     derivative_segment = diff(sympy_node, var)
@@ -238,7 +238,7 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
 
             # --- Operator rules ---
             if op == Add:
-                _add_step_dag(node, "sumRule_start", "Applying the Sum Rule: (f+g)' = f' + g'")
+                _add_step_dag(node, "sumRule_start", "Applying the Sum Rule:")
                 result_children = tuple(_compute_dag_derivative_recursive(arg, var) for arg in args)
                 result_node = DAGNode(Add, result_children)
                 _add_step_dag(result_node, "sumRule_result", "The sum of the derivatives is:")
@@ -259,54 +259,54 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
                 return result_node
 
             if op == Pow:
-                _add_step_dag(node, "powerRule_start", "Applying the Power Rule or related rules.")
+                _add_step_dag(node, "powerRule_start", "Applying the Power Rule: ")
                 base, exp_node = args
                 if not dag_to_sympy(exp_node).has(var):
                     du = _compute_dag_derivative_recursive(base, var)
                     new_exp = parse_sympy_to_dag(dag_to_sympy(exp_node) - 1, dag_node_map)
                     result_node = DAGNode(Mul, (exp_node, DAGNode(Pow, (base, new_exp)), du))
-                    _add_step_dag(result_node, "powerRule_result", "Result of the Power Rule (u^n)' = n*u^(n-1)*u':")
+                    _add_step_dag(result_node, "powerRule_result", "Result of the Power Rule:")
                     memo[node] = result_node
                     return result_node
 
             def apply_chain_rule(rule_name, display_rule, result_func):
                 u_node = args[0]
-                _add_step_dag(node, f"{rule_name}Rule_start", f"Applying the Chain Rule for {rule_name}(u): {display_rule}")
+                _add_step_dag(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule:")
                 du_node = _compute_dag_derivative_recursive(u_node, var)
                 result_node = result_func(u_node, du_node)
-                _add_step_dag(result_node, f"{rule_name}Rule_result", f"The result for the {rule_name} function is:")
+                _add_step_dag(result_node, f"{rule_name}Rule_result", f"The result for the function is:")
                 return result_node
 
             if op == sin:
-                result = apply_chain_rule("sin", r"", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
+                result = apply_chain_rule("sin", r"Sine", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
                 memo[node] = result
                 return result
             if op == cos:
-                result = apply_chain_rule("cos", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
+                result = apply_chain_rule("cos", r"Cosine", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
                 memo[node] = result
                 return result
             if op == tan:
-                result = apply_chain_rule("tan", r"", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
+                result = apply_chain_rule("tan", r"Tangent", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
                 memo[node] = result
                 return result
             if op == sec:
-                result = apply_chain_rule("sec", r"", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
+                result = apply_chain_rule("sec", r"Secant", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
                 memo[node] = result
                 return result
             if op == csc:
-                result = apply_chain_rule("csc", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
+                result = apply_chain_rule("csc", r"Cosecant", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
                 memo[node] = result
                 return result
             if op == cot:
-                result = apply_chain_rule("cot", r"", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
+                result = apply_chain_rule("cot", r"Cotangent", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
                 memo[node] = result
                 return result
             if op == exp:
-                result = apply_chain_rule("exp", r"", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
+                result = apply_chain_rule("exp", r"Chain", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
                 memo[node] = result
                 return result
             if op == log:
-                result = apply_chain_rule("log", r"", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
+                result = apply_chain_rule("log", r"Chain", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
                 memo[node] = result
                 return result
 

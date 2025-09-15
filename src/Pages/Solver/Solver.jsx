@@ -70,61 +70,48 @@ const Solver = () => {
         setDerivative('');
         setErrorMessage('');
         setResults({
-             AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
-             DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
-             NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
+            AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+            DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+            NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
         });
-                
+        
         setIsLoading(true);
-        setErrorMessage('');
-        setProgress(0); // Reset progress bar
-
-        const dataStructures = ['AST', 'DAG', 'NLL'];
-        const newResults = {};
-        const totalRuns = 15;
-        const warmupRuns = 5;
-        const measuredRuns = totalRuns - warmupRuns;
-
+        setProgress(0);
+        
         try {
-            for (const ds of dataStructures) {
-                let times = [], memories = [], derivative = '', steps = [];
-                for (let i = 0; i < totalRuns; i++) {
-                    const resp = await fetch("http://127.0.0.1:8000/solve", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            expression: input,
-                            data_structure: ds,
-                            variable
-                        })
-                    });
-                    const data = await resp.json();
-                    if (!resp.ok) throw new Error(data.detail || "An error occurred in the backend.");
+            const eventSource = new EventSource(`http://127.0.0.1:8000/solve_stream?expression=${encodeURIComponent(input)}&variable=${variable}`);
 
-                    // Update progress after each successful run
-                    setProgress(prev => prev + 1);
-
-                    // Discard warmup runs and collect data from measured runs
-                    if (i >= warmupRuns) {
-                        times.push(data.execution_time_ms);
-                        memories.push(data.peak_memory_bytes);
-                        // Capture the derivative and steps from the first measured run
-                        if (i === warmupRuns) {
-                            derivative = data.derivative_latex; 
-                            steps = data.steps || [];
-                        }
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'progress') {
+                    setProgress(data.progress);
+                } else if (data.type === 'complete') {
+                    setResults(data.results);
+                    // Set the main derivative display from one of the results
+                    const firstResult = Object.values(data.results)[0];
+                    if (firstResult && firstResult.derivative) {
+                        setDerivative(firstResult.derivative);
                     }
+                    eventSource.close();
+                    setIsLoading(false);
+                } else if (data.type === 'error') {
+                    setErrorMessage(data.detail);
+                    eventSource.close();
+                    setIsLoading(false);
                 }
-                const avgTime = times.reduce((a, b) => a + b, 0) / measuredRuns;
-                const avgMemory = memories.reduce((a, b) => a + b, 0) / measuredRuns;
-                newResults[ds] = { derivative, steps, avgTime, avgMemory };
-                setDerivative(derivative); // Update the main derivative display
-            }
-            setResults(newResults);
+            };
+
+            eventSource.onerror = (error) => {
+                console.error("EventSource failed:", error);
+                setErrorMessage("An error occurred during the benchmark.");
+                eventSource.close();
+                setIsLoading(false);
+            };
+
         } catch (error) {
-            console.error("Error in solveExpression:", error);
+            console.error("Error setting up SSE:", error);
             setErrorMessage(`Error: ${error.message}`);
-        } finally {
             setIsLoading(false);
         }
     };

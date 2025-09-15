@@ -1,6 +1,8 @@
+import React from 'react';
+
 const MeasurementDisplay = ({ results, isLoading, progress }) => {
     const dataStructures = ['AST', 'DAG', 'NLL'];
-    const totalSteps = dataStructures.length * 15; 
+    const totalSteps = 120; 
     
     if (isLoading) {
         const progressPercentage = (progress / totalSteps) * 100;
@@ -39,17 +41,23 @@ const MeasurementDisplay = ({ results, isLoading, progress }) => {
     const analysis = {};
     let bestOverall = { name: '', score: Infinity };
 
-    if (results.AST.avgTime !== null && results.DAG.avgTime !== null && results.NLL.avgTime !== null) {
-        const times = dataStructures.map(ds => results[ds].avgTime);
-        const memories = dataStructures.map(ds => results[ds].avgMemory);
+    // Filter to include only data structures with valid numbers for both time and memory.
+    const validDataStructures = dataStructures.filter(ds => 
+        typeof results[ds].avgTime === 'number' && !isNaN(results[ds].avgTime) &&
+        typeof results[ds].avgMemory === 'number' && !isNaN(results[ds].avgMemory)
+    );
+
+    if (validDataStructures.length > 0) {
+        const times = validDataStructures.map(ds => results[ds].avgTime);
+        const memories = validDataStructures.map(ds => results[ds].avgMemory);
 
         const minTime = Math.min(...times);
         const minMemory = Math.min(...memories);
 
-        analysis.fastest = dataStructures[times.indexOf(minTime)];
-        analysis.mostEfficient = dataStructures[memories.indexOf(minMemory)];
+        analysis.fastest = validDataStructures[times.indexOf(minTime)];
+        analysis.mostEfficient = validDataStructures[memories.indexOf(minMemory)];
         
-        dataStructures.forEach(ds => {
+        validDataStructures.forEach(ds => {
             const timeScore = results[ds].avgTime / minTime;
             const memoryScore = results[ds].avgMemory / minMemory;
             const combinedScore = timeScore + memoryScore;
