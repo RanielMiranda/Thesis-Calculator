@@ -224,7 +224,7 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
                     _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
                     result = DAGNode(S.One)
                 elif isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant {latex(sympy_node)} is 0.")
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant is 0.")
                     result = DAGNode(S.Zero)
                 else:
                     derivative_segment = diff(sympy_node, var)

@@ -257,7 +257,7 @@ def compute_derivative_nll(expression_str: str, variable_str: str):
                     _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
                     return S.One  # NLL for 1 is just the number 1
                 if isinstance(nll, (Number, int, float)) or not nll.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of constant {latex(nll)} is 0.")
+                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant is 0.")
                     return S.Zero # NLL for 0 is just the number 0
                 
                 # Fallback for other leaf types (should be rare)

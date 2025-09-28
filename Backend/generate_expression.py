@@ -1,19 +1,11 @@
 import random
-from sympy import symbols, S, sin, cos, tan, exp, Add, Mul, Pow, sec, csc, cot
+from sympy import symbols, S, sin, cos, tan, Add, Mul, Pow, sec, csc, cot
 
 def generate_random_expression(variables, num_terms=3, max_depth=2):
-    """
-    Generates a random SymPy expression.
-    Args:
-        variables (list): A list of SymPy Symbol objects to use as variables.
-        num_terms (int): The number of top-level terms in the expression.
-        max_depth (int): The maximum nesting depth of the expression tree.
-    Returns:
-        sympy.core.expr.Expr: A randomly generated SymPy expression.
-    """
     # Define available functions and operators
+    # The list now only includes the specified functions and operators.
     operators = [Add, Mul, Pow]
-    functions = [sin, cos, exp, tan, sec, csc, cot]
+    functions = [sin, cos, tan, sec, csc, cot]
     
     # Simple leaf nodes (variables or constants)
     def create_leaf():
@@ -24,7 +16,8 @@ def generate_random_expression(variables, num_terms=3, max_depth=2):
 
     # Recursive function to build the tree
     def create_node(current_depth):
-        if current_depth >= max_depth or random.random() < 0.4: # Base case: create a leaf
+        # Base case: create a leaf
+        if current_depth >= max_depth or random.random() < 0.4:
             return create_leaf()
         
         # Recursive case: create a function or operator node
@@ -39,6 +32,7 @@ def generate_random_expression(variables, num_terms=3, max_depth=2):
     
     # Combine terms with addition to form the final expression
     terms = [create_node(0) for _ in range(num_terms)]
+
     return Add(*terms)
 
 if __name__ == '__main__':

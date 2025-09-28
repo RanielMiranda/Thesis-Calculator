@@ -84,15 +84,27 @@ const MeasurementDisplay = ({ results, isLoading, progress }) => {
                     {dataStructures.map(ds => (
                         <tr key={ds} className="hover:bg-secondary transition-colors duration-200">
                             <td className="p-2 border-2 border-secondary font-semibold">{ds}</td>
-                            <td className="p-2 border-2 border-secondary">{results[ds].avgTime !== null ? results[ds].avgTime.toFixed(2) : 'N/A'}</td>
-                            <td className="p-2 border-2 border-secondary">{results[ds].avgMemory !== null ? results[ds].avgMemory.toLocaleString() : 'N/A'}</td>
+                                <td className="p-3 border-x border-b border-secondary">
+                                    {results[ds].avgTime !== null ? (
+                                        <span className={`${ds === analysis.fastest ? 'text-primary font-bold' : 'text-dark'}`}>
+                                            {results[ds].avgTime.toFixed(2)}
+                                        </span>
+                                    ) : 'N/A'}
+                                </td>
+                                <td className="p-3 border-x border-b border-secondary">
+                                    {results[ds].avgMemory !== null ? (
+                                        <span className={`${ds === analysis.mostEfficient ? 'text-primary font-bold' : 'text-dark'}`}>
+                                            {results[ds].avgMemory.toLocaleString()}
+                                        </span>
+                                    ) : 'N/A'}
+                                </td>
                         </tr>
                     ))}
                 </tbody>
             </table>
             {analysis.bestOverall && (
                 <div className="mt-4 p-4 bg-light rounded-lg border border-light">
-                    <h4 className="font-bold text-md text-dark mb-2">Analysis Summary:</h4>
+                    <h4 className="font-bold text-md text-xl mb-2 text-primary">Analysis Summary:</h4>
                     <ul className="list-disc list-inside text-sm space-y-1">
                         <li><strong>Fastest:</strong> <span className="font-semibold text-xl text-primary">{analysis.fastest}</span> was the quickest to compute the derivative.</li>
                         <li><strong>Most Memory Efficient:</strong> <span className="font-semibold text-xl text-primary">{analysis.mostEfficient}</span> used the least amount of memory.</li>

@@ -235,7 +235,7 @@ def compute_derivative_ast(expression_str: str, variable_str: str):
             # chain rule
             def apply_chain_rule(rule_name, display_rule, result_func):
                 u_node = args[0]
-                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule: ")
+                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule:")
                 du_node = _compute_ast_derivative_recursive(u_node, var)
                 result_node = result_func(u_node, du_node)
                 _add_step_ast(result_node, f"{rule_name}Rule_result", f"The result for the function is:")

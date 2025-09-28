@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
+from sympy import symbols, latex
 
 # Import the derivative computation and expression generation functions
 # These are assumed to be separate files in the same directory.
@@ -146,16 +147,24 @@ async def solve_derivative_stream(expression: str, variable: str = 'x'):
 async def generate_expression_endpoint(input_data: GenerationInput):
     logger.debug(f"Received generate request with parameters: {input_data}")
     try:
-        expression_str, expression_latex = generate_random_expression(
+        # Convert string variables to SymPy Symbol objects
+        sym_variables = symbols(input_data.variables)
+
+        expression = generate_random_expression(
+            variables=sym_variables,
             num_terms=input_data.num_terms,
             max_depth=input_data.max_depth,
-            variables=input_data.variables
         )
+
+        expression_str = str(expression)
+        expression_latex = latex(expression)
+
         response = {
             "expression_string": expression_str,
             "expression_latex": expression_latex
         }
         return response
+
     except Exception as e:
         logger.error(f"Error generating expression: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"An error occurred while generating the expression: {str(e)}")
