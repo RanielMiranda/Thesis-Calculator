@@ -10,9 +10,9 @@ from sympy import symbols, latex
 
 # Import the derivative computation and expression generation functions
 # These are assumed to be separate files in the same directory.
-from derivative_ast import compute_derivative_ast
-from derivative_dag import compute_derivative_dag
-from derivative_nll import compute_derivative_nll
+from Structures.derivative_ast import compute_derivative_ast
+from Structures.derivative_dag import compute_derivative_dag
+from Structures.derivative_nll import compute_derivative_nll
 from generate_expression import generate_random_expression
 
 # --- Basic Setup ---
@@ -42,10 +42,6 @@ class GenerationInput(BaseModel):
 
 # --- Streaming Generator for Benchmarking ---
 async def benchmark_generator(expression: str, variable: str):
-    """
-    An asynchronous generator that runs the derivative computation benchmark
-    for all data structures and streams progress and final results.
-    """
     data_structures = ['AST', 'DAG', 'NLL']
     total_runs = 30
     warmup_runs = 10
