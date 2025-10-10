@@ -9,7 +9,6 @@ from typing import Optional, List
 from sympy import symbols, latex
 
 # Import the derivative computation and expression generation functions
-# These are assumed to be separate files in the same directory.
 from Structures.derivative_ast import compute_derivative_ast
 from Structures.derivative_dag import compute_derivative_dag
 from Structures.derivative_nll import compute_derivative_nll
@@ -43,8 +42,8 @@ class GenerationInput(BaseModel):
 # --- Streaming Generator for Benchmarking ---
 async def benchmark_generator(expression: str, variable: str):
     data_structures = ['AST', 'DAG', 'NLL']
-    total_runs = 30
-    warmup_runs = 10
+    total_runs = 1
+    warmup_runs = 0
     measured_runs = total_runs - warmup_runs
     
     total_iterations = len(data_structures) * total_runs

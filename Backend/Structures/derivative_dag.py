@@ -1,30 +1,27 @@
-import logging
 import re
 import time
 import tracemalloc
+import logging
 from typing import List, Dict, Optional, Tuple
 
-# --- SymPy Imports ---
-from sympy import (
-    Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
-    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, diff
-)
-from sympy.core.numbers import Number
-
 # --- Logger Setup ---
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- DAG Node ---
+# A set of known mathematical functions (used as node values for unary operations).
+SUPPORTED_FUNCTIONS = {"sin", "cos", "tan", "sec", "csc", "cot", "exp", "log", "sqrt"}
+
+# --- Directed Acyclic Graph (DAG) Node ---
 class DAGNode:
     def __init__(self, value, children: Optional[Tuple['DAGNode', ...]] = None):
-        self.value = value
+        # Value is the operator ('+', '*', 'sin', etc.) or the literal value (1.0, 'x', etc.)
+        self.value = value 
+        # Children must be a tuple for hashability and immutability
         self.children = children or tuple()
-        self._hash = None
 
     def __hash__(self):
-        if self._hash is None:
-            self._hash = hash((self.value, self.children))
-        return self._hash
+        # Hash based on value and children tuple (which is hashable)
+        return hash((self.value, self.children))
 
     def __eq__(self, other):
         if not isinstance(other, DAGNode):
@@ -32,14 +29,18 @@ class DAGNode:
         return self.value == other.value and self.children == other.children
 
     def __repr__(self):
-        return f"DAGNode({self.value}, children={self.children})"
+        if not self.children:
+            return str(self.value)
+        # Use abbreviated repr for children to prevent recursion depth issues in logging
+        child_reprs = ', '.join(f"<{c.value}>" for c in self.children)
+        return f"DAGNode({self.value}, [{child_reprs}])"
 
-# --- Tokenizer and Parser ---
+# --- Tokenizer and Parser (Adapted for DAG Canonicalization) ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
 TOKEN_OPERATOR = 'OPERATOR'
-TOKEN_LPAREN = 'LPAPAREN'
+TOKEN_LPAREN = 'LPAREN'
 TOKEN_RPAREN = 'RPAREN'
 TOKEN_EOF = 'EOF'
 
@@ -51,15 +52,17 @@ class Token:
         return f"Token({self.type}, '{self.value}')"
 
 class Tokenizer:
+    # Use word boundaries for functions to avoid partial matches (e.g., "sine")
     TOKEN_SPECS = [
+        (r'\b(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)\b', TOKEN_FUNCTION),
         (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
-        (r'sin|cos|tan|exp|log|sqrt|sec|csc|cot', TOKEN_FUNCTION),
         (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
         (r'\(', TOKEN_LPAREN),
         (r'\)', TOKEN_RPAREN),
         (r'\s+', None),
     ]
+    _COMPILED_SPECS = [(re.compile(pattern), ttype) for pattern, ttype in TOKEN_SPECS]
 
     def __init__(self, expression_string: str):
         self.expression_string = expression_string
@@ -68,19 +71,19 @@ class Tokenizer:
 
     def _tokenize(self) -> List[Token]:
         tokens = []
-        position = 0
-        while position < len(self.expression_string):
-            match = None
-            for pattern, token_type in self.TOKEN_SPECS:
-                regex = re.compile(pattern)
-                match = regex.match(self.expression_string, position)
+        pos = 0
+        while pos < len(self.expression_string):
+            match_found = False
+            for regex, ttype in self._COMPILED_SPECS:
+                match = regex.match(self.expression_string, pos)
                 if match:
-                    if token_type:
-                        tokens.append(Token(token_type, match.group(0)))
-                    position = match.end(0)
+                    if ttype:
+                        tokens.append(Token(ttype, match.group(0)))
+                    pos = match.end()
+                    match_found = True
                     break
-            if not match:
-                raise ValueError(f"Unexpected character at position {position}")
+            if not match_found:
+                raise ValueError(f"Unexpected character at position {pos}: {self.expression_string[pos]}")
         tokens.append(Token(TOKEN_EOF, ''))
         return tokens
     
@@ -92,68 +95,81 @@ class Tokenizer:
         return Token(TOKEN_EOF, '')
 
 class Parser:
-    def __init__(self, tokenizer: Tokenizer, custom_vars: Dict[str, SympySymbol]):
+    """
+    Parses the token stream into a canonical DAG structure.
+    """
+    def __init__(self, tokenizer: Tokenizer):
         self.tokenizer = tokenizer
-        self.custom_vars = custom_vars
         self.current_token = self.tokenizer.next()
-        self.supported_sympy_functions = {
-            "sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp,
-            "log": log, "sec": sec, "csc": csc, "cot": cot
-        }
-
+        # Dictionary to store unique DAGNodes for canonical representation
+        self.canonical_nodes: Dict[Tuple, DAGNode] = {}
+        
     def _eat(self, token_type: str):
         if self.current_token.type == token_type:
             self.current_token = self.tokenizer.next()
         else:
-            raise ValueError(f"Expected {token_type}, got {self.current_token.type}")
+            raise ValueError(f"Expected {token_type}, got {self.current_token.type} ('{self.current_token.value}')")
 
-    def parse(self):
+    def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
+        """Creates a canonical DAGNode, reusing existing nodes if possible."""
+        key = (value, children)
+        if key in self.canonical_nodes:
+            return self.canonical_nodes[key]
+        
+        node = DAGNode(value, children)
+        self.canonical_nodes[key] = node
+        return node
+
+    def parse(self) -> DAGNode:
         result = self._expr()
         if self.current_token.type != TOKEN_EOF:
             raise ValueError("Unexpected token at end of expression")
         return result
 
-    def _expr(self):
+    def _expr(self):  # Handles + and -
         node = self._term()
         while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('+', '-'):
             op = self.current_token.value
             self._eat(TOKEN_OPERATOR)
             right = self._term()
-            node = Add(node, right) if op == '+' else Add(node, Mul(S.NegativeOne, right))
+            node = self._create_node(op, (node, right))
         return node
 
-    def _term(self):
+    def _term(self):  # Handles * and /
         node = self._factor()
         while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
             op = self.current_token.value
             self._eat(TOKEN_OPERATOR)
             right = self._factor()
-            node = Mul(node, right) if op == '*' else Mul(node, Pow(right, S.NegativeOne))
+            node = self._create_node(op, (node, right))
         return node
 
-    def _factor(self):
+    def _factor(self):  # Handles ^
         node = self._atom()
         if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
             self._eat(TOKEN_OPERATOR)
-            right = self._factor()
-            node = Pow(node, right)
+            right = self._factor() # Right-associativity
+            node = self._create_node('^', (node, right))
         return node
-
+    
     def _atom(self):
         token = self.current_token
         if token.type == TOKEN_NUMBER:
             self._eat(TOKEN_NUMBER)
-            return Float(token.value) if '.' in token.value else Integer(token.value)
+            return self._create_node(float(token.value))
         elif token.type == TOKEN_SYMBOL:
             self._eat(TOKEN_SYMBOL)
-            return self.custom_vars.get(token.value, SympySymbol(token.value))
+            return self._create_node(token.value)
         elif token.type == TOKEN_FUNCTION:
             func_name = token.value
             self._eat(TOKEN_FUNCTION)
+            # Expect parentheses after function name
+            if self.current_token.type != TOKEN_LPAREN:
+                raise ValueError(f"Expected '(' after function '{func_name}'")
             self._eat(TOKEN_LPAREN)
             arg = self._expr()
             self._eat(TOKEN_RPAREN)
-            return self.supported_sympy_functions[func_name](arg)
+            return self._create_node(func_name, (arg,))
         elif token.type == TOKEN_LPAREN:
             self._eat(TOKEN_LPAREN)
             node = self._expr()
@@ -161,181 +177,425 @@ class Parser:
             return node
         elif token.type == TOKEN_OPERATOR and token.value == '-':
             self._eat(TOKEN_OPERATOR)
-            return Mul(S.NegativeOne, self._factor())
-        raise ValueError(f"Unexpected token: {token}")
+            # Unary minus is represented as multiplication by -1
+            neg_one = self._create_node(-1.0)
+            factor = self._factor()
+            return self._create_node('*', (neg_one, factor))
+        
+        raise ValueError(f"Parser Error: Unexpected token: {token}")
 
-# --- Helper Functions ---
-def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):
-    steps_list.append({
-        "id": f"step_{len(steps_list)}_{rule_key}",
-        "prefix": prefix,
-        "parts": [{"latex": latex(expr), "rule_id": rule_key, "explanation_key": rule_key}],
-        "explanation_text": explanation
-    })
+# --- Helper and Formatting Functions ---
 
-def parse_sympy_to_dag(expr, node_map: Dict[SympySymbol, 'DAGNode']):
-    if expr in node_map:
-        return node_map[expr]
+def to_latex(node: DAGNode):
+    """Converts a DAGNode structure into a LaTeX string."""
+    if not node.children:
+        if isinstance(node.value, float):
+            # Format floating point numbers nicely for display
+            return str(int(node.value)) if node.value.is_integer() else str(node.value)
+        return str(node.value)
 
-    if not hasattr(expr, 'args') or not expr.args:
-        node = DAGNode(expr)
-        node_map[expr] = node
+    op = node.value
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '^': 3}
+    
+    def format_child(child_node, is_left_child=False):
+        child_latex = to_latex(child_node)
+        child_op = child_node.value
+        
+        if not child_node.children: return child_latex
+        
+        op_prec = precedence.get(op, 99)
+        child_prec = precedence.get(child_op, 99)
+        
+        needs_parens = False
+        if child_prec < op_prec: 
+            needs_parens = True
+        elif child_prec == op_prec:
+            if op == '^' and is_left_child: needs_parens = True # Power is right-associative
+            if op in "+-*/" and not is_left_child: needs_parens = True # Left-associativity rule
+        
+        return f"({child_latex})" if needs_parens else child_latex
+
+    args_latex = [format_child(c, i==0) for i, c in enumerate(node.children)]
+    
+    # Binary Operators
+    if op == '+': return f"{args_latex[0]} + {args_latex[1]}"
+    if op == '-': return f"{args_latex[0]} - {args_latex[1]}"
+    
+    if op == '*':
+        # Check for unary minus: -1.0 * X should be formatted as -X
+        if isinstance(node.children[0].value, float) and abs(node.children[0].value + 1.0) < 1e-9 and not node.children[0].children:
+             return f"-{args_latex[1]}"
+
+        # Check for 1 * X or X * 1 (should have been simplified, but for safety)
+        if isinstance(node.children[0].value, float) and abs(node.children[0].value - 1.0) < 1e-9 and not node.children[0].children:
+             return args_latex[1]
+        if isinstance(node.children[1].value, float) and abs(node.children[1].value - 1.0) < 1e-9 and not node.children[1].children:
+             return args_latex[0]
+
+        # Implicit multiplication for non-constants (2x or cos(x) 2x)
+        if isinstance(node.children[0].value, float) and not node.children[0].children:
+            return f"{args_latex[0]}{args_latex[1]}"
+        
+        # Use implicit multiplication by default (a space) for other terms
+        return f"{args_latex[0]} \\cdot {args_latex[1]}"
+        
+    if op == '/': return f"\\frac{{{to_latex(node.children[0])}}}{{{to_latex(node.children[1])}}}"
+    
+    if op == '^': 
+        base_latex = format_child(node.children[0], is_left_child=True)
+        # Exponents are always wrapped in braces
+        return f"{base_latex}^{{{args_latex[1]}}}"
+    
+    # Functions (Unary operators)
+    if op in SUPPORTED_FUNCTIONS: return f"\\{op}({args_latex[0]})"
+    
+    return f"{op}({', '.join(args_latex)})"
+
+def depends_on(node: DAGNode, var: str):
+    """Checks if a DAGNode sub-tree depends on the variable 'var'."""
+    if node.value == var:
+        return True
+    return any(depends_on(child, var) for child in node.children)
+
+
+# --- Expression Simplifier ---
+class Simplifier:
+    """Simplifies the DAG structure using algebraic identities and constant folding."""
+    def __init__(self, canonical_nodes: Dict[Tuple, DAGNode]):
+        self.memo: Dict[DAGNode, DAGNode] = {}
+        self.canonical_nodes = canonical_nodes
+        self.zero = self._create_node(0.0)
+        self.one = self._create_node(1.0)
+        self.neg_one = self._create_node(-1.0)
+
+    def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
+        """Factory method to ensure all generated nodes are canonical."""
+        key = (value, children)
+        if key in self.canonical_nodes:
+            return self.canonical_nodes[key]
+        
+        node = DAGNode(value, children)
+        self.canonical_nodes[key] = node
+        return node
+    
+    def run(self, node: DAGNode) -> DAGNode:
+        if node in self.memo:
+            return self.memo[node]
+
+        # If leaf node, nothing to simplify
+        if not node.children:
+            self.memo[node] = node
+            return node
+
+        # 1. Recursively simplify children
+        simplified_children = tuple(self.run(child) for child in node.children)
+        op = node.value
+        result_node = None
+        
+        # Safely unpack 2 children (many ops are binary)
+        left = simplified_children[0] if len(simplified_children) > 0 else None
+        right = simplified_children[1] if len(simplified_children) > 1 else None
+        
+        # Helper for float comparison
+        def is_float_equal(n: Optional[DAGNode], target_value: float) -> bool:
+            return (n is not None) and isinstance(n.value, float) and abs(n.value - target_value) < 1e-9 and not n.children
+
+        # --- Simplification Rules (clean, non-contradictory) ---
+        # Numeric folding where possible
+        if op == '+':
+            if left is not None and right is not None:
+                if is_float_equal(left, 0.0):
+                    result_node = right
+                elif is_float_equal(right, 0.0):
+                    result_node = left
+                elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                    result_node = self._create_node(left.value + right.value)
+
+        elif op == '-':
+            if left is not None and right is not None:
+                if is_float_equal(right, 0.0):
+                    result_node = left
+                elif left == right:
+                    result_node = self.zero
+                elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                    result_node = self._create_node(left.value - right.value)
+
+        elif op == '*':
+            if left is not None and right is not None:
+                if is_float_equal(left, 0.0) or is_float_equal(right, 0.0):
+                    result_node = self.zero
+                elif is_float_equal(left, 1.0):
+                    result_node = right
+                elif is_float_equal(right, 1.0):
+                    result_node = left
+                elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                    result_node = self._create_node(left.value * right.value)
+
+        elif op == '/':
+            if left is not None and right is not None:
+                if is_float_equal(left, 0.0) and not is_float_equal(right, 0.0):
+                    result_node = self.zero
+                elif is_float_equal(right, 1.0):
+                    result_node = left
+                elif left == right:
+                    result_node = self.one
+                elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children and not is_float_equal(right, 0.0):
+                    result_node = self._create_node(left.value / right.value)
+
+        elif op == '^':
+            # Expect exactly two children for power
+            if left is not None and right is not None:
+                if is_float_equal(right, 1.0):
+                    result_node = left
+                elif is_float_equal(right, 0.0):
+                    result_node = self.one
+                elif is_float_equal(left, 1.0):
+                    result_node = self.one
+                elif is_float_equal(left, 0.0):
+                    result_node = self.zero
+                elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                    # numeric power folding, careful with negative/zero exponents but allow general float pow
+                    result_node = self._create_node(left.value ** right.value)
+
+        # If no simplification rule was hit, rebuild the node from simplified children
+        if result_node is None:
+            # Use _create_node to ensure the rebuilt node is also canonical
+            result_node = self._create_node(op, simplified_children)
+
+        # Cache the result and return
+        self.memo[node] = result_node
+        return result_node
+
+# --- Derivative Computation with Memoization (DAG advantage) ---
+class Differentiator:
+    """Computes the derivative of a DAG expression using the Chain Rule and memoization."""
+    def __init__(self, variable: str, canonical_nodes: Dict[Tuple, DAGNode]):
+        self.variable = variable
+        self.steps = []
+        self.memo: Dict[DAGNode, DAGNode] = {}
+        self.canonical_nodes = canonical_nodes
+        
+        # Pre-create canonical constants for easy rule generation
+        self.zero = self._create_node(0.0)
+        self.one = self._create_node(1.0)
+        self.neg_one = self._create_node(-1.0)
+
+    def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
+        """Factory method to ensure all generated nodes are canonical."""
+        key = (value, children)
+        if key in self.canonical_nodes:
+            return self.canonical_nodes[key]
+        
+        node = DAGNode(value, children)
+        self.canonical_nodes[key] = node
         return node
 
-    children = tuple(parse_sympy_to_dag(arg, node_map) for arg in expr.args)
-    node = DAGNode(expr.func, children)
-    node_map[expr] = node
-    return node
+    def _add_step(self, node: DAGNode, rule_key: str, explanation: str, prefix: str = "= "):
+        self.steps.append({
+            "id": f"step_{len(self.steps)}_{rule_key}",
+            "prefix": prefix,
+            # Convert DAGNode to LaTeX string for display
+            "parts": [{"latex": to_latex(node), "explanation_key": rule_key}],
+            "explanation_text": explanation
+        })
 
-def dag_to_sympy(node):
-    if not node.children:
-        return node.value
-    return node.value(*[dag_to_sympy(child) for child in node.children])
+    def run(self, node: DAGNode):
+        self._add_step(node, "initial_expression", "Differentiating the expression:", prefix=f"\\frac{{d}}{{d{self.variable}}}")
+        return self._differentiate(node)
 
-def compute_derivative_dag(expression_str: str, variable_str: str):
-    steps = []
+    def _differentiate(self, node: DAGNode) -> DAGNode:
+        if node in self.memo:
+            logger.debug(f"MEMO HIT for differentiation of: {repr(node)}")
+            return self.memo[node]
 
-    def _add_step_dag(expr_node, rule_key, explanation, prefix="= "):
-        _add_step(steps, dag_to_sympy(expr_node), rule_key, explanation, prefix)
-
-    tracemalloc.start()
-    start_time = time.perf_counter()
-
-    try:
-        tokenizer = Tokenizer(expression_str)
-        variable_symbol = SympySymbol(variable_str)
-        parser = Parser(tokenizer, {variable_str: variable_symbol})
-        sympy_expr = parser.parse()
-
-        dag_node_map = {}
-        dag_tree = parse_sympy_to_dag(sympy_expr, dag_node_map)
-
-        _add_step_dag(dag_tree, "initial_expression", "Differentiating with DAG:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
-
-        memo = {}
-        def _compute_dag_derivative_recursive(node, var):
-            if node in memo:
-                return memo[node]
+        # --- Base cases ---
+        if not node.children:
+            if node.value == self.variable:
+                self._add_step(node, "variableRule", f"The derivative of {self.variable} is 1.")
+                result = self.one
+            elif isinstance(node.value, (int, float)) or (isinstance(node.value, str) and node.value not in SUPPORTED_FUNCTIONS):
+                self._add_step(node, "constantRule", f"The derivative of a constant is 0.")
+                result = self.zero
+            else:
+                # This should not happen if the parser is correct
+                raise ValueError(f"Unhandled base case for value: {node.value}")
             
-            # --- Base cases ---
-            if not node.children:
-                sympy_node = dag_to_sympy(node)
-                if sympy_node == var:
-                    _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
-                    result = DAGNode(S.One)
-                elif isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant is 0.")
-                    result = DAGNode(S.Zero)
-                else:
-                    derivative_segment = diff(sympy_node, var)
-                    _add_step(steps, derivative_segment, "leaf_fallback", f"Fallback for leaf node {latex(sympy_node)}.")
-                    result = parse_sympy_to_dag(derivative_segment, dag_node_map) # Cache and re-use
-                memo[node] = result
-                return result
-            
-            op = node.value
-            args = node.children
-
-            # --- Operator rules ---
-            if op == Add:
-                _add_step_dag(node, "sumRule_start", "Applying the Sum Rule:")
-                result_children = tuple(_compute_dag_derivative_recursive(arg, var) for arg in args)
-                result_node = DAGNode(Add, result_children)
-                _add_step_dag(result_node, "sumRule_result", "The sum of the derivatives is:")
-                memo[node] = result_node
-                return result_node
-            
-            if op == Mul:
-                _add_step_dag(node, "productRule_start", "Applying the Product Rule.")
-                terms = []
-                for i in range(len(args)):
-                    d_terms = []
-                    for j, child in enumerate(args):
-                        d_terms.append(_compute_dag_derivative_recursive(child, var) if i == j else child)
-                    terms.append(DAGNode(Mul, tuple(d_terms)))
-                result_node = DAGNode(Add, tuple(terms))
-                _add_step_dag(result_node, "productRule_result", "The result of the Product Rule is:")
-                memo[node] = result_node
-                return result_node
-
-            if op == Pow:
-                _add_step_dag(node, "powerRule_start", "Applying the Power Rule: ")
-                base, exp_node = args
-                if not dag_to_sympy(exp_node).has(var):
-                    du = _compute_dag_derivative_recursive(base, var)
-                    new_exp = parse_sympy_to_dag(dag_to_sympy(exp_node) - 1, dag_node_map)
-                    result_node = DAGNode(Mul, (exp_node, DAGNode(Pow, (base, new_exp)), du))
-                    _add_step_dag(result_node, "powerRule_result", "Result of the Power Rule:")
-                    memo[node] = result_node
-                    return result_node
-
-            def apply_chain_rule(rule_name, display_rule, result_func):
-                u_node = args[0]
-                _add_step_dag(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule:")
-                du_node = _compute_dag_derivative_recursive(u_node, var)
-                result_node = result_func(u_node, du_node)
-                _add_step_dag(result_node, f"{rule_name}Rule_result", f"The result for the function is:")
-                return result_node
-
-            if op == sin:
-                result = apply_chain_rule("sin", r"Sine", lambda u, du: DAGNode(Mul, (DAGNode(cos, (u,)), du)))
-                memo[node] = result
-                return result
-            if op == cos:
-                result = apply_chain_rule("cos", r"Cosine", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(sin, (u,)), du)))
-                memo[node] = result
-                return result
-            if op == tan:
-                result = apply_chain_rule("tan", r"Tangent", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (DAGNode(sec, (u,)), DAGNode(S(2),))), du)))
-                memo[node] = result
-                return result
-            if op == sec:
-                result = apply_chain_rule("sec", r"Secant", lambda u, du: DAGNode(Mul, (DAGNode(sec, (u,)), DAGNode(tan, (u,)), du)))
-                memo[node] = result
-                return result
-            if op == csc:
-                result = apply_chain_rule("csc", r"Cosecant", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(csc, (u,)), DAGNode(cot, (u,)), du)))
-                memo[node] = result
-                return result
-            if op == cot:
-                result = apply_chain_rule("cot", r"Cotangent", lambda u, du: DAGNode(Mul, (DAGNode(S.NegativeOne), DAGNode(Pow, (DAGNode(csc, (u,)), DAGNode(S(2),))), du)))
-                memo[node] = result
-                return result
-            if op == exp:
-                result = apply_chain_rule("exp", r"Chain", lambda u, du: DAGNode(Mul, (DAGNode(exp, (u,)), du)))
-                memo[node] = result
-                return result
-            if op == log:
-                result = apply_chain_rule("log", r"Chain", lambda u, du: DAGNode(Mul, (DAGNode(Pow, (u, DAGNode(S.NegativeOne),)), du)))
-                memo[node] = result
-                return result
-
-            # --- Fallback ---
-            sympy_segment = dag_to_sympy(node)
-            _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific DAG rule matched. Using a fallback.")
-            derivative_segment = diff(sympy_segment, var)
-            result = parse_sympy_to_dag(derivative_segment, dag_node_map)
-            memo[node] = result
+            self.memo[node] = result
             return result
         
-        differentiated_dag = _compute_dag_derivative_recursive(dag_tree, variable_symbol)
-        final_derivative = dag_to_sympy(differentiated_dag)
+        op = node.value
+        args = node.children
+        result_node = None
+
+        # Standardized wording helper
+        def sum_rule_start(n): self._add_step(n, "sumRule_start", "Applying the sum/difference rule:")
+        def sum_rule_result(n): self._add_step(n, "sumRule_result", "Result of the sum/difference rule.")
+        def product_rule_start(n): self._add_step(n, "productRule_start", "Applying the product rule:")
+        def product_rule_result(n): self._add_step(n, "productRule_result", "Result of the product rule.")
+        def quotient_rule_start(n): self._add_step(n, "quotientRule_start", "Applying the quotient rule:")
+        def quotient_rule_result(n): self._add_step(n, "quotientRule_result", "Result of the quotient rule.")
+        def power_rule_start(n): self._add_step(n, "powerRule_start", "Applying the power rule:")
+        def power_rule_result(n): self._add_step(n, "powerRule_result", "Result of the power rule.")
+        def chain_rule_start(n, rule_name): self._add_step(n, f"{rule_name}Rule_start", f"Applying the chain rule for {rule_name}:")
+        def chain_rule_result(n, rule_name): self._add_step(n, f"{rule_name}Rule_result", "Result of the chain rule.")
+
+        # --- Rule Implementations ---
+        
+        # Sum/Difference Rule
+        if op in ('+', '-'):
+            sum_rule_start(node)
+            d_args = tuple(self._differentiate(arg) for arg in args)
+            result_node = self._create_node(op, d_args)
+            sum_rule_result(result_node)
+        
+        # Product Rule
+        elif op == '*':
+            u, v = args
+            product_rule_start(node)
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            term1 = self._create_node('*', (du, v)) # u'v
+            term2 = self._create_node('*', (u, dv)) # uv'
+            result_node = self._create_node('+', (term1, term2))
+            product_rule_result(result_node)
+        
+        # Quotient Rule
+        elif op == '/':
+            u, v = args
+            quotient_rule_start(node)
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            num_term1 = self._create_node('*', (du, v)) # u'v
+            num_term2 = self._create_node('*', (u, dv)) # uv'
+            numerator = self._create_node('-', (num_term1, num_term2)) # u'v - uv'
+            denominator = self._create_node('^', (v, self._create_node(2.0))) # v^2
+            result_node = self._create_node('/', (numerator, denominator))
+            quotient_rule_result(result_node)
+
+        # Power Rule (f(x)^c) where exponent is constant
+        elif op == '^':
+            base, exp = args
+            if not depends_on(exp, self.variable) and isinstance(exp.value, float):
+                power_rule_start(node)
+                
+                exp_val = exp.value
+                new_exp = self._create_node(exp_val - 1.0) 
+                
+                term1 = self._create_node('*', (exp, self._create_node('^', (base, new_exp)))) # c * u^(c-1)
+                du = self._differentiate(base) # u'
+                result_node = self._create_node('*', (term1, du)) # (c * u^(c-1)) * u'
+                power_rule_result(result_node)
+            else:
+                # fallback: derivative for f(x)^g(x) not implemented
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+
+        # --- Chain Rule: functions ---
+        elif op in SUPPORTED_FUNCTIONS:
+            u = args[0]
+            du = self._differentiate(u)
+
+            # Generic chain rule helper that uses the standardized messages
+            def apply_chain_rule(rule_name, inner_derivative_node):
+                chain_rule_start(node, rule_name)
+                # Multiply inner derivative (f'(u)) by u'
+                result = self._create_node('*', (inner_derivative_node, du))
+                chain_rule_result(result, rule_name)
+                return result
+
+            if op == 'sin':
+                inner = self._create_node('cos', (u,))
+                result_node = apply_chain_rule("sin", inner)
+            elif op == 'cos':
+                # -sin(u)
+                inner = self._create_node('*', (self.neg_one, self._create_node('sin', (u,))))
+                result_node = apply_chain_rule("cos", inner)
+            elif op == 'tan':
+                # sec(u)^2
+                inner = self._create_node('^', (self._create_node('sec', (u,)), self._create_node(2.0)))
+                result_node = apply_chain_rule("tan", inner)
+            elif op == 'sec':
+                inner = self._create_node('*', (self._create_node('sec', (u,)), self._create_node('tan', (u,))))
+                result_node = apply_chain_rule("sec", inner)
+            elif op == 'csc':
+                inner = self._create_node('*', (self.neg_one, self._create_node('*', (self._create_node('csc', (u,)), self._create_node('cot', (u,)))))) 
+                result_node = apply_chain_rule("csc", inner)
+            elif op == 'cot':
+                inner = self._create_node('*', (self.neg_one, self._create_node('^', (self._create_node('csc', (u,)), self._create_node(2.0)))))
+                result_node = apply_chain_rule("cot", inner)
+            elif op == 'exp':
+                inner = self._create_node('exp', (u,))
+                result_node = apply_chain_rule("exp", inner)
+            elif op == 'log':
+                inner = self._create_node('/', (self.one, u))
+                result_node = apply_chain_rule("log", inner)
+            elif op == 'sqrt':
+                two_sqrt_u = self._create_node('*', (self._create_node(2.0), self._create_node('sqrt', (u,))))
+                inner = self._create_node('/', (self.one, two_sqrt_u))
+                result_node = apply_chain_rule("sqrt", inner)
+            else:
+                raise ValueError(f"Differentiation rule for function '{op}' not implemented.")
+        else:
+            raise ValueError(f"Differentiation rule for operator '{op}' not implemented.")
+
+        # Cache the result and return
+        self.memo[node] = result_node
+        return result_node
+
+# --- Main Compute Function ---
+def compute_derivative_dag(expression_str: str, variable_str: str):
+    """
+    Computes the symbolic derivative using a canonical DAG structure.
+    """
+    tracemalloc.start()
+    start_time = time.perf_counter()
+    
+    # This dictionary holds all unique nodes, enforcing the DAG structure
+    canonical_nodes: Dict[Tuple, DAGNode] = {}
+    
+    try:
+        # 1. Tokenize and Parse into DAG
+        tokenizer = Tokenizer(expression_str)
+        parser = Parser(tokenizer)
+
+        expression_dag = parser.parse()
+        canonical_nodes.update(parser.canonical_nodes)
+
+        # 2. Differentiate with step tracking (Memoization uses the DAG structure)
+        differentiator = Differentiator(variable_str, canonical_nodes)
+        derivative_dag = differentiator.run(expression_dag)
+        
+        # 3. Simplify the result before displaying
+        def simplify_until_stable(node: DAGNode) -> DAGNode:
+            current_node = node
+            simplifier = Simplifier(canonical_nodes)
+            for i in range(10): # Max 10 passes so more chance to converge
+                simplified_node = simplifier.run(current_node)
+                if simplified_node == current_node:
+                    logger.debug(f"Simplification stabilized after {i} passes.")
+                    break
+                current_node = simplified_node
+            return current_node
+
+        simplified_dag = simplify_until_stable(derivative_dag)
+        
+        # 4. Format final result
+        derivative_latex = to_latex(simplified_dag)
+        differentiator._add_step(simplified_dag, "final_derivative", "The final derivative is:", prefix="\\text{Simplified Result:} & = ")
+        steps = differentiator.steps
+
+    except Exception as e:
+        logger.error(f"Error computing derivative for '{expression_str}': {e}", exc_info=True)
+        steps = [{"id": "error", "prefix": "Error:", "parts": [], "explanation_text": str(e)}]
+        derivative_latex = f"\\text{{Error: {str(e)}}}"
 
     finally:
         end_time = time.perf_counter()
         _, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-    
-    _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
-    
-    dag_node_count = len(dag_node_map)
 
     return {
-        "derivative_latex": latex(final_derivative),
+        "derivative_latex": derivative_latex,
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "dag_node_count": dag_node_count,
     }
-
-    

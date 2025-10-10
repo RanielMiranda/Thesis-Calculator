@@ -1,145 +1,169 @@
-import logging
 import re
 import time
 import tracemalloc
-from typing import List, Dict, Optional
-
-# --- SymPy Imports ---
-from sympy import (
-    Symbol as SympySymbol, Integer, Float, Add, Mul, Pow,
-    sin, cos, tan, exp, log, sqrt, sec, csc, cot, S, latex, diff
-)
-from sympy.core.numbers import Number
+import logging
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# --- Custom AST Data Structure ---
+# --- Abstract Syntax Tree (AST) Node ---
 class ASTNode:
     def __init__(self, value, children=None):
         self.value = value
         self.children = children or []
 
-# --- Manual Tokenizer and Parser (included for measurement) ---
+    def __repr__(self):
+        if not self.children:
+            return str(self.value)
+        return f"{self.value}({', '.join(map(str, self.children))})"
+
+# --- Tokenizer: Breaking the Expression into Tokens ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
 TOKEN_OPERATOR = 'OPERATOR'
-TOKEN_LPAREN = 'LPAPAREN'
+TOKEN_LPAREN = 'LPAREN'
 TOKEN_RPAREN = 'RPAREN'
 TOKEN_EOF = 'EOF'
 
+# A set of known mathematical functions.
+SUPPORTED_FUNCTIONS = {"sin", "cos", "tan", "sec", "csc", "cot", "exp", "log", "sqrt"}
+
 class Token:
-    def __init__(self, type: str, value: str):
+    def __init__(self, type, value):
         self.type = type
         self.value = value
+
     def __repr__(self):
         return f"Token({self.type}, '{self.value}')"
 
 class Tokenizer:
+    # Function regex changed to use word boundaries so 'sine' doesn't match 'sin' + 'e'
     TOKEN_SPECS = [
         (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
-        (r'sin|cos|tan|exp|log|sqrt|sec|csc|cot', TOKEN_FUNCTION),
+        (r'\b(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)\b', TOKEN_FUNCTION),
         (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
         (r'\(', TOKEN_LPAREN),
         (r'\)', TOKEN_RPAREN),
-        (r'\s+', None),
+        (r'\s+', None),  # Skip whitespace
     ]
+    _COMPILED_SPECS = [(re.compile(pattern), ttype) for pattern, ttype in TOKEN_SPECS]
 
-    def __init__(self, expression_string: str):
-        self.expression_string = expression_string
+    def __init__(self, text):
+        self.text = text
         self.tokens = self._tokenize()
-        self.current_token_index = 0
+        self.index = 0
 
-    def _tokenize(self) -> List[Token]:
+    def _tokenize(self):
         tokens = []
-        position = 0
-        while position < len(self.expression_string):
-            match = None
-            for pattern, token_type in self.TOKEN_SPECS:
-                regex = re.compile(pattern)
-                match = regex.match(self.expression_string, position)
+        pos = 0
+        while pos < len(self.text):
+            match_found = False
+            for regex, ttype in self._COMPILED_SPECS:
+                match = regex.match(self.text, pos)
                 if match:
-                    if token_type:
-                        tokens.append(Token(token_type, match.group(0)))
-                    position = match.end(0)
+                    if ttype:
+                        tokens.append(Token(ttype, match.group(0)))
+                    pos = match.end()
+                    match_found = True
                     break
-            if not match:
-                raise ValueError(f"Unexpected character at position {position}")
-        tokens.append(Token(TOKEN_EOF, ''))
+            if not match_found:
+                raise ValueError(f"Unexpected character at position {pos}: '{self.text[pos]}'")
+        tokens.append(Token(TOKEN_EOF, ""))
         return tokens
-    
-    def next(self) -> Token:
-        if self.current_token_index < len(self.tokens):
-            token = self.tokens[self.current_token_index]
-            self.current_token_index += 1
+
+    def next(self):
+        if self.index < len(self.tokens):
+            token = self.tokens[self.index]
+            self.index += 1
             return token
-        return Token(TOKEN_EOF, '')
+        return Token(TOKEN_EOF, "")
 
+    def peek(self):
+        if self.index < len(self.tokens):
+            return self.tokens[self.index]
+        return Token(TOKEN_EOF, "")
+
+# --- Parser: Building the AST from Tokens ---
 class Parser:
-    def __init__(self, tokenizer: Tokenizer, custom_vars: Dict[str, SympySymbol]):
+    def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.custom_vars = custom_vars
         self.current_token = self.tokenizer.next()
-        self.supported_sympy_functions = {
-            "sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan, "exp": exp,
-            "log": log, "sec": sec, "csc": csc, "cot": cot
-        }
 
-    def _eat(self, token_type: str):
+    def _eat(self, token_type):
         if self.current_token.type == token_type:
             self.current_token = self.tokenizer.next()
         else:
-            raise ValueError(f"Expected {token_type}, got {self.current_token.type}")
+            raise ValueError(f"Parser Error: Expected {token_type}, but got {self.current_token.type}")
 
     def parse(self):
         result = self._expr()
         if self.current_token.type != TOKEN_EOF:
-            raise ValueError("Unexpected token at end of expression")
+            raise ValueError("Parser Error: Unexpected token at end of expression")
         return result
 
-    def _expr(self):
+    def _expr(self):  # Handles Addition (+) and Subtraction (-)
         node = self._term()
         while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('+', '-'):
             op = self.current_token.value
             self._eat(TOKEN_OPERATOR)
             right = self._term()
-            node = Add(node, right) if op == '+' else Add(node, Mul(S.NegativeOne, right))
+            node = ASTNode(op, [node, right])
         return node
 
-    def _term(self):
+    def _term(self):  # Handles Multiplication (*) and Division (/) and implicit multiplication
         node = self._factor()
-        while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
-            op = self.current_token.value
-            self._eat(TOKEN_OPERATOR)
-            right = self._factor()
-            node = Mul(node, right) if op == '*' else Mul(node, Pow(right, S.NegativeOne))
+
+        while True:
+            # explicit * or /
+            if self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
+                op = self.current_token.value
+                self._eat(TOKEN_OPERATOR)
+                right = self._factor()
+                node = ASTNode(op, [node, right])
+                continue
+
+            # implicit multiplication: (after a factor) if next token starts another atom/ factor
+            # cases that signal implicit multiplication: number, symbol, function, '('
+            if self.current_token.type in (TOKEN_NUMBER, TOKEN_SYMBOL, TOKEN_FUNCTION, TOKEN_LPAREN):
+                # treat as multiplication
+                right = self._factor()
+                node = ASTNode('*', [node, right])
+                continue
+
+            break
+
         return node
 
-    def _factor(self):
+    def _factor(self):  # Handles exponentiation (^)
         node = self._atom()
         if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
             self._eat(TOKEN_OPERATOR)
             right = self._factor()
-            node = Pow(node, right)
+            node = ASTNode('^', [node, right])
         return node
 
     def _atom(self):
         token = self.current_token
         if token.type == TOKEN_NUMBER:
             self._eat(TOKEN_NUMBER)
-            return Float(token.value) if '.' in token.value else Integer(token.value)
+            return ASTNode(float(token.value))
         elif token.type == TOKEN_SYMBOL:
             self._eat(TOKEN_SYMBOL)
-            return self.custom_vars.get(token.value, SympySymbol(token.value))
+            return ASTNode(token.value)
         elif token.type == TOKEN_FUNCTION:
             func_name = token.value
             self._eat(TOKEN_FUNCTION)
-            self._eat(TOKEN_LPAREN)
-            arg = self._expr()
-            self._eat(TOKEN_RPAREN)
-            return self.supported_sympy_functions[func_name](arg)
+            # allow both f(x) and f x (e.g. sin x) - prefer explicit parentheses if present
+            if self.current_token.type == TOKEN_LPAREN:
+                self._eat(TOKEN_LPAREN)
+                arg = self._expr()
+                self._eat(TOKEN_RPAREN)
+            else:
+                # no parentheses: treat next atom as argument (e.g., "sin x" or "sin2")
+                arg = self._atom()
+            return ASTNode(func_name, [arg])
         elif token.type == TOKEN_LPAREN:
             self._eat(TOKEN_LPAREN)
             node = self._expr()
@@ -147,139 +171,301 @@ class Parser:
             return node
         elif token.type == TOKEN_OPERATOR and token.value == '-':
             self._eat(TOKEN_OPERATOR)
-            return Mul(S.NegativeOne, self._factor())
-        raise ValueError(f"Unexpected token: {token}")
+            # Represent as multiplication by -1
+            return ASTNode('*', [ASTNode(-1.0), self._factor()])
 
-# --- Helper Functions ---
-def _add_step(steps_list, expr, rule_key, explanation, prefix="= "):
-    steps_list.append({
-        "id": f"step_{len(steps_list)}_{rule_key}",
-        "prefix": prefix,
-        "parts": [{"latex": latex(expr), "rule_id": rule_key, "explanation_key": rule_key}],
-        "explanation_text": explanation
-    })
+        raise ValueError(f"Parser Error: Unexpected token: {token}")
 
-def parse_sympy_to_ast(expr):
-    if not hasattr(expr, 'args') or not expr.args:
-        return ASTNode(expr)
-    return ASTNode(expr.func, [parse_sympy_to_ast(arg) for arg in expr.args])
-
-def node_to_sympy(node):
+# --- Helper and Formatting Functions ---
+def to_latex(node):
     if not node.children:
-        return node.value
-    return node.value(*[node_to_sympy(child) for child in node.children])
+        if isinstance(node.value, float):
+            return str(int(node.value)) if node.value.is_integer() else str(node.value)
+        return str(node.value)
 
-def compute_derivative_ast(expression_str: str, variable_str: str):
-    steps = []
+    op = node.value
 
-    def _add_step_ast(expr_node, rule_key, explanation, prefix="= "):
-        _add_step(steps, node_to_sympy(expr_node), rule_key, explanation, prefix)
+    # Define operator precedence for parenthesis insertion
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '^': 3}
 
+    def format_child(child_node, is_left_child=False):
+        child_latex = to_latex(child_node)
+        child_op = child_node.value
+
+        if not child_node.children:
+            return child_latex
+
+        op_prec = precedence.get(op, 99)
+        child_prec = precedence.get(child_op, 99)
+
+        if child_prec < op_prec:
+            return f"({child_latex})"
+        if child_prec == op_prec:
+            if op == '^' and is_left_child:
+                return f"({child_latex})"
+            if op in "+-*/" and not is_left_child:
+                return f"({child_latex})"
+        return child_latex
+
+    args_latex = [format_child(c, i == 0) for i, c in enumerate(node.children)]
+
+    if op == '+':
+        return f"{args_latex[0]} + {args_latex[1]}"
+    if op == '-':
+        return f"{args_latex[0]} - {args_latex[1]}"
+    if op == '*':
+        # handle -1.0 * X -> -X
+        if node.children[0].value == -1.0 and not node.children[0].children:
+            return f"-{args_latex[1]}"
+        left_is_num = isinstance(node.children[0].value, float) and not node.children[0].children
+        if left_is_num:
+            return f"{to_latex(node.children[0])}{args_latex[1]}"
+        return f"{args_latex[0]} \\cdot {args_latex[1]}"
+
+    if op == '/':
+        return f"\\frac{{{to_latex(node.children[0])}}}{{{to_latex(node.children[1])}}}"
+    if op == '^':
+        return f"{{{args_latex[0]}}}^{{{args_latex[1]}}}"
+    if op in SUPPORTED_FUNCTIONS:
+        return f"\\{op}({args_latex[0]})"
+
+    return f"{op}({', '.join(args_latex)})"
+
+def depends_on(node, var):
+    if node.value == var:
+        return True
+    return any(depends_on(child, var) for child in node.children)
+
+# --- Expression Simplifier ---
+class Simplifier:
+    def __init__(self):
+        self.memo = {}
+
+    def run(self, node):
+        if id(node) in self.memo:
+            return self.memo[id(node)]
+
+        if not node.children:
+            return node
+
+        simplified_children = [self.run(child) for child in node.children]
+        op = node.value
+        result_node = None
+
+        if op == '+':
+            left, right = simplified_children
+            if left.value == 0.0 and not left.children:
+                result_node = right
+            elif right.value == 0.0 and not right.children:
+                result_node = left
+            elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                result_node = ASTNode(left.value + right.value)
+
+        elif op == '-':
+            left, right = simplified_children
+            if right.value == 0.0 and not right.children:
+                result_node = left
+            elif left.value == right.value and not left.children and not right.children:
+                result_node = ASTNode(0.0)
+            elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                result_node = ASTNode(left.value - right.value)
+
+        elif op == '*':
+            left, right = simplified_children
+            if (left.value == 0.0 and not left.children) or (right.value == 0.0 and not right.children):
+                result_node = ASTNode(0.0)
+            elif left.value == 1.0 and not left.children:
+                result_node = right
+            elif right.value == 1.0 and not right.children:
+                result_node = left
+            elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
+                result_node = ASTNode(left.value * right.value)
+
+        elif op == '/':
+            left, right = simplified_children
+            if left.value == 0.0 and not left.children:
+                result_node = ASTNode(0.0)
+            elif right.value == 1.0 and not right.children:
+                result_node = left
+            elif left.value == right.value and not left.children and not right.children and left.value != 0.0:
+                result_node = ASTNode(1.0)
+            elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children and right.value != 0.0:
+                result_node = ASTNode(left.value / right.value)
+
+        elif op == '^':
+            base, exp = simplified_children
+
+            if (isinstance(exp.value, (float, int)) and abs(exp.value - 1.0) < 1e-9) and not exp.children:
+                result_node = base
+            elif (isinstance(exp.value, (float, int)) and abs(exp.value - 0.0) < 1e-9) and not exp.children:
+                result_node = ASTNode(1.0)
+            elif (isinstance(base.value, (float, int)) and abs(base.value - 1.0) < 1e-9) and not base.children:
+                result_node = ASTNode(1.0)
+            elif (isinstance(base.value, (float, int)) and abs(base.value - 0.0) < 1e-9) and not base.children:
+                result_node = ASTNode(0.0)
+
+        if result_node is None:
+            result_node = ASTNode(op, simplified_children)
+
+        self.memo[id(node)] = result_node
+        return result_node
+
+# --- Derivative Computation with Step-by-Step Logging ---
+class Differentiator:
+    def __init__(self, variable):
+        self.variable = variable
+        self.steps = []
+
+    def _add_step(self, node, rule_key, explanation, prefix="= "):
+        self.steps.append({
+            "id": f"step_{len(self.steps)}_{rule_key}",
+            "prefix": prefix,
+            "parts": [{"latex": to_latex(node), "explanation_key": rule_key}],
+            "explanation_text": explanation
+        })
+
+    def run(self, node):
+        self._add_step(node, "initial_expression", "Differentiating the expression:", prefix=f"\\frac{{d}}{{d{self.variable}}}")
+        return self._differentiate(node)
+
+    def _apply_chain_rule(self, node, op, result_func):
+        u = node.children[0]
+        rule_name = op.capitalize() + " Rule"
+        self._add_step(node, f"{op}Rule_start", f"Applying the Chain Rule for {op.capitalize()}: ")
+        du = self._differentiate(u)
+        result_node = result_func(u, du)
+        self._add_step(result_node, f"{op}Rule_result", f"Result of the {rule_name}.")
+        return result_node
+
+    def _differentiate(self, node):
+        # Base cases: constants or the variable itself
+        if not node.children:
+            if node.value == self.variable:
+                self._add_step(node, "variableRule", f"The derivative of {self.variable} is 1.")
+                return ASTNode(1.0)
+            if isinstance(node.value, (int, float, str)):
+                self._add_step(node, "constantRule", f"The derivative of a constant is 0.")
+                return ASTNode(0.0)
+            return node
+
+        op = node.value
+        args = node.children
+
+        if op in ('+', '-'):
+            self._add_step(node, "sumRule_start", "Applying the Sum/Difference Rule.")
+            d_args = [self._differentiate(arg) for arg in args]
+            result_node = ASTNode(op, d_args)
+            self._add_step(result_node, "sumRule_result", "Result of the Sum/Difference Rule.")
+            return result_node
+
+        if op == '*':
+            u, v = args
+            self._add_step(node, "productRule_start", "Applying the Product Rule: ")
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            result_node = ASTNode('+', [ASTNode('*', [du, v]), ASTNode('*', [u, dv])])
+            self._add_step(result_node, "productRule_result", "Result of the Product Rule.")
+            return result_node
+
+        if op == '/':
+            u, v = args
+            self._add_step(node, "quotientRule_start", "Applying the Quotient Rule: ")
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            num = ASTNode('-', [ASTNode('*', [du, v]), ASTNode('*', [u, dv])])
+            den = ASTNode('^', [v, ASTNode(2.0)])
+            result_node = ASTNode('/', [num, den])
+            self._add_step(result_node, "quotientRule_result", "Result of the Quotient Rule.")
+            return result_node
+
+        if op == '^':
+            base, exp = args
+            if not depends_on(exp, self.variable):  # Power Rule: f(x)^c
+                self._add_step(node, "powerRule_start", "Applying the Power Rule: ")
+                du = self._differentiate(base)
+                new_exp_val = exp.value - 1.0 if isinstance(exp.value, float) else float(exp.value) - 1.0
+                new_exp = ASTNode(new_exp_val)
+                term1 = ASTNode('*', [exp, ASTNode('^', [base, new_exp])])
+                result_node = ASTNode('*', [term1, du])
+                self._add_step(result_node, "powerRule_result", "Result of the Power Rule.")
+                return result_node
+            else:
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+
+        # Chain rule for functions
+        if op in SUPPORTED_FUNCTIONS:
+            if op == 'sin':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('cos', [u]), du]))
+            if op == 'cos':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('*', [ASTNode(-1.0), ASTNode('sin', [u])]), du]))
+            if op == 'tan':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('^', [ASTNode('sec', [u]), ASTNode(2.0)]), du]))
+            if op == 'sec':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('*', [ASTNode('sec', [u]), ASTNode('tan', [u])]), du]))
+            if op == 'csc':
+                # -csc(u)cot(u) * u'
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('*', [ASTNode(-1.0), ASTNode('csc', [u])]), ASTNode('*', [ASTNode('cot', [u]), du])]))
+            if op == 'cot':
+                # -csc^2(u) * u'
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('*', [ASTNode(-1.0), ASTNode('^', [ASTNode('csc', [u]), ASTNode(2.0)])]), du]))
+            if op == 'exp':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('exp', [u]), du]))
+            if op == 'log':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('/', [ASTNode(1.0), u]), du]))
+            if op == 'sqrt':
+                return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('/', [ASTNode(1.0), ASTNode('*', [ASTNode(2.0), node])]), du]))
+
+        raise ValueError(f"Differentiation rule for '{op}' not implemented.")
+
+# --- Main Compute Function ---
+def compute_derivative_ast(expression_str, variable_str):
     tracemalloc.start()
     start_time = time.perf_counter()
 
     try:
+        # 1. Tokenize and Parse
         tokenizer = Tokenizer(expression_str)
-        variable_symbol = SympySymbol(variable_str)
-        parser = Parser(tokenizer, {variable_str: variable_symbol})
-        sympy_expr = parser.parse()
-        ast_tree = parse_sympy_to_ast(sympy_expr)
+        parser = Parser(tokenizer)
+        expression_ast = parser.parse()
 
-        _add_step_ast(ast_tree, "initial_expression", "Differentiating with AST:", prefix=f"\\frac{{d}}{{d{latex(variable_symbol)}}}")
-        
-        def _compute_ast_derivative_recursive(node, var):
-            if not node.children:
-                sympy_node = node_to_sympy(node)
-                if sympy_node == var:
-                    _add_step(steps, S.One, "variableRule", f"The derivative of {variable_str} is 1.")
-                    return ASTNode(S.One)
-                if isinstance(sympy_node, (Number, int, float)) or not sympy_node.has(var):
-                    _add_step(steps, S.Zero, "constantRule", f"The derivative of a constant is 0.")
-                    return ASTNode(S.Zero)
-                
-                derivative_segment = diff(sympy_node, var)
-                _add_step(steps, derivative_segment, "leaf_fallback", f"Fallback for leaf node {latex(sympy_node)}.")
-                return parse_sympy_to_ast(derivative_segment)
-            
-            op = node.value
-            args = node.children
-            
-            if op == Add:
-                _add_step_ast(node, "sumRule_start", "Applying the Sum Rule:")
-                result_node = ASTNode(Add, [_compute_ast_derivative_recursive(arg, var) for arg in args])
-                _add_step_ast(result_node, "sumRule_result", "The sum of the derivatives is:")
-                return result_node
-            
-            if op == Mul:
-                _add_step_ast(node, "productRule_start", "Applying the Product Rule.")
-                terms = []
-                for i in range(len(args)):
-                    d_terms = []
-                    for j, child in enumerate(args):
-                        d_terms.append(_compute_ast_derivative_recursive(child, var) if i == j else child)
-                    terms.append(ASTNode(Mul, d_terms))
-                result_node = ASTNode(Add, terms)
-                _add_step_ast(result_node, "productRule_result", "The result of the Product Rule is:")
-                return result_node
+        # 2. Differentiate with step tracking
+        differentiator = Differentiator(variable_str)
+        derivative_ast = differentiator.run(expression_ast)
 
-            if op == Pow:
-                _add_step_ast(node, "powerRule_start", "Applying the Power Rule:")
-                base, exp_node = args
-                if not node_to_sympy(exp_node).has(var):
-                    du = _compute_ast_derivative_recursive(base, var)
-                    new_exp = parse_sympy_to_ast(node_to_sympy(exp_node) - 1)
-                    result_node = ASTNode(Mul, [exp_node, ASTNode(Pow, [base, new_exp]), du])
-                    _add_step_ast(result_node, "powerRule_result", "Result of the Power Rule:")
-                    return result_node
-            
-            # chain rule
-            def apply_chain_rule(rule_name, display_rule, result_func):
-                u_node = args[0]
-                _add_step_ast(node, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule:")
-                du_node = _compute_ast_derivative_recursive(u_node, var)
-                result_node = result_func(u_node, du_node)
-                _add_step_ast(result_node, f"{rule_name}Rule_result", f"The result for the function is:")
-                return result_node
+        # 3. Simplify the result before displaying
+        simplifier = Simplifier()
+        simplified_ast = simplifier.run(derivative_ast)
 
-            if op == sin:
-                return apply_chain_rule("sin", r"Sine", lambda u, du: ASTNode(Mul, [ASTNode(cos, [u]), du]))
-            if op == cos:
-                return apply_chain_rule("cos", r"Cosine", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(sin, [u]), du]))
-            if op == tan:
-                return apply_chain_rule("tan", r"Tangent", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [ASTNode(sec, [u]), ASTNode(S(2))]), du]))
-            if op == sec:
-                return apply_chain_rule("sec", r"Secant", lambda u, du: ASTNode(Mul, [ASTNode(sec, [u]), ASTNode(tan, [u]), du]))
-            if op == csc:
-                return apply_chain_rule("csc", r"Cosecant", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(csc, [u]), ASTNode(cot, [u]), du]))
-            if op == cot:
-                return apply_chain_rule("cot", r"Cotangent", lambda u, du: ASTNode(Mul, [ASTNode(S.NegativeOne), ASTNode(Pow, [ASTNode(csc, [u]), ASTNode(S(2))]), du]))
-            if op == exp:
-                return apply_chain_rule("exp", r"Chain", lambda u, du: ASTNode(Mul, [ASTNode(exp, [u]), du]))
-            if op == log:
-                return apply_chain_rule("log", r"Chain", lambda u, du: ASTNode(Mul, [ASTNode(Pow, [u, ASTNode(S.NegativeOne)]), du]))
+        steps = differentiator.steps
 
-            sympy_segment = node_to_sympy(node)
-            _add_step(steps, sympy_segment, "unknownRule_sympy_fallback", "No specific AST rule matched. Using a fallback.")
-            derivative_segment = diff(sympy_segment, var)
-            return parse_sympy_to_ast(derivative_segment)
+        # 4. Format final result
+        derivative_latex = to_latex(simplified_ast)
+        steps.append({
+            "id": "final_derivative",
+            "prefix": "= ",
+            "parts": [{"latex": derivative_latex, "explanation_key": "final_derivative"}],
+            "explanation_text": "The final derivative is:"
+        })
 
-        differentiated_ast = _compute_ast_derivative_recursive(ast_tree, variable_symbol)
-        final_derivative = node_to_sympy(differentiated_ast)
-
+    except Exception as e:
+        logger.error(f"Error computing derivative for '{expression_str}': {e}", exc_info=True)
+        end_time = time.perf_counter()
+        _, peak_memory = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return {
+            "derivative_latex": f"\\text{{Error: {str(e)}}}",
+            "steps": [{"id": "error", "prefix": "Error:", "parts": [], "explanation_text": str(e)}],
+            "execution_time_ms": (end_time - start_time) * 1000,
+            "peak_memory_bytes": peak_memory,
+        }
     finally:
         end_time = time.perf_counter()
         _, peak_memory = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-    
-    _add_step(steps, final_derivative, "final_derivative", "The final derivative is:")
-    
-    def count_nodes(node): return 1 + sum(count_nodes(child) for child in node.children)
-    ast_node_count = count_nodes(ast_tree)
 
     return {
-        "derivative_latex": latex(final_derivative),
+        "derivative_latex": derivative_latex,
         "steps": steps,
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
-        "ast_node_count": ast_node_count,
     }
