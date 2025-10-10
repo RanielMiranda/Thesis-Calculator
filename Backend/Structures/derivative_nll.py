@@ -1,108 +1,19 @@
-import logging
 import re
 import time
-from typing import List, Dict, Union, Any, Iterator, Iterable, Tuple, Optional
 import tracemalloc
+import logging
 
 # --- Logger Setup ---
 logger = logging.getLogger(__name__)
 
-# =====================================================================
-# 1. CUSTOM BASE CLASSES (REPLACING SYMPY LEAF NODES AND CONSTANTS)
-# =====================================================================
+# --- Data Structure: Nested List-Like (NLL) ---
+# The core data structure is a standard Python list, used recursively.
+# - A number is a float: 3.14
+# - A variable is a string: 'x'
+# - An operation is a list: ['operator', operand1, operand2, ...]
+# - Example: 2 * sin(x) -> ['*', 2.0, ['sin', 'x']]
 
-class MySymbol:
-    """Custom Symbol class to replace SympySymbol."""
-    def __init__(self, name: str):
-        self.name = name
-    def __repr__(self) -> str:
-        return self.name
-    def __eq__(self, other):
-        return isinstance(other, MySymbol) and self.name == other.name
-    def __hash__(self) -> int:
-        return hash(self.name)
-    def has(self, var) -> bool:
-        """Mimics the SymPy .has() method for leaf nodes."""
-        return self == var
-
-class MyNumber(float):
-    """Base class for custom numbers."""
-    def __repr__(self) -> str:
-        return str(self)
-    def has(self, var) -> bool:
-        return False
-    
-class MyInteger(MyNumber):
-    """Custom Integer class."""
-    def __init__(self, value):
-        super().__init__()
-    def __repr__(self) -> str:
-        return str(int(self))
-    def __add__(self, other):
-        return MyNumber(float(self) + float(other))
-
-class MyFloat(MyNumber):
-    """Custom Float class."""
-    def __init__(self, value):
-        super().__init__()
-
-# Custom Constants (replacing S.Zero, S.One, S.NegativeOne)
-MY_ZERO = MyInteger(0)
-MY_ONE = MyInteger(1)
-MY_NEG_ONE = MyInteger(-1)
-MY_TWO = MyInteger(2)
-MY_HALF = MyFloat(0.5)
-MY_NEG_HALF = MyFloat(-0.5)
-
-# --- Custom List Implementation (Nested Linked List Node) ---
-# NLL structure: [Operator_Name, Operand1, Operand2, ...]
-class CustomList:
-    def __init__(self, items: Iterable[Any] = None):
-        self._items = []
-        if items is not None:
-            self._items.extend(items)
-
-    def __getitem__(self, index: int) -> Any:
-        return self._items[index]
-
-    def __setitem__(self, index: int, value: Any):
-        self._items[index] = value
-
-    def __len__(self) -> int:
-        return len(self._items)
-
-    def __iter__(self) -> Iterator[Any]:
-        return iter(self._items)
-        
-    def __repr__(self) -> str:
-        # Recursively print to show the NLL structure
-        return f"CustomList({repr(self._items)})"
-
-    def append(self, item: Any):
-        self._items.append(item)
-
-    def __add__(self, other):
-        if isinstance(other, CustomList):
-            return CustomList(self._items + other._items)
-        elif isinstance(other, list):
-            return CustomList(self._items + other)
-        return NotImplemented
-
-    def has(self, var: MySymbol) -> bool:
-        """Recursive check for variable presence."""
-        for item in self._items[1:]: # Skip the operator name
-            if isinstance(item, CustomList):
-                if item.has(var):
-                    return True
-            elif item == var:
-                return True
-        return False
-
-# =====================================================================
-# 2. TOKENIZER AND PARSER (STRING TO NLL CONVERSION)
-# The parser now returns a CustomList (NLL) or a leaf node directly.
-# =====================================================================
-
+# --- Tokenizer: Breaking the Expression into Tokens ---
 TOKEN_NUMBER = 'NUMBER'
 TOKEN_SYMBOL = 'SYMBOL'
 TOKEN_FUNCTION = 'FUNCTION'
@@ -111,438 +22,362 @@ TOKEN_LPAREN = 'LPAREN'
 TOKEN_RPAREN = 'RPAREN'
 TOKEN_EOF = 'EOF'
 
+SUPPORTED_FUNCTIONS = {"sin", "cos", "tan", "sec", "csc", "cot", "exp", "log", "sqrt"}
+
 class Token:
-    def __init__(self, type: str, value: str):
+    def __init__(self, type, value):
         self.type = type
         self.value = value
+
     def __repr__(self):
         return f"Token({self.type}, '{self.value}')"
 
 class Tokenizer:
     TOKEN_SPECS = [
         (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
-        (r'sin|cos|tan|exp|log|sqrt|sec|csc|cot', TOKEN_FUNCTION),
+        (r'\b(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)\b', TOKEN_FUNCTION),
         (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
         (r'\(', TOKEN_LPAREN),
         (r'\)', TOKEN_RPAREN),
-        (r'\s+', None),
+        (r'\s+', None),  # Skip whitespace
     ]
+    _COMPILED_SPECS = [(re.compile(pattern), ttype) for pattern, ttype in TOKEN_SPECS]
 
-    def __init__(self, expression_string: str):
-        self.expression_string = expression_string
+    def __init__(self, text):
+        self.text = text
         self.tokens = self._tokenize()
-        self.current_token_index = 0
+        self.index = 0
 
-    def _tokenize(self) -> List[Token]:
+    def _tokenize(self):
         tokens = []
-        position = 0
-        while position < len(self.expression_string):
-            match = None
-            for pattern, token_type in self.TOKEN_SPECS:
-                regex = re.compile(pattern)
-                match = regex.match(self.expression_string, position)
+        pos = 0
+        while pos < len(self.text):
+            match_found = False
+            for regex, ttype in self._COMPILED_SPECS:
+                match = regex.match(self.text, pos)
                 if match:
-                    if token_type:
-                        tokens.append(Token(token_type, match.group(0)))
-                    position = match.end(0)
+                    if ttype:
+                        tokens.append(Token(ttype, match.group(0)))
+                    pos = match.end()
+                    match_found = True
                     break
-            if not match:
-                raise ValueError(f"Unexpected character at position {position}: {self.expression_string[position]}")
-        tokens.append(Token(TOKEN_EOF, ''))
+            if not match_found:
+                raise ValueError(f"Unexpected character at position {pos}: '{self.text[pos]}'")
+        tokens.append(Token(TOKEN_EOF, ""))
         return tokens
-    
-    def next(self) -> Token:
-        if self.current_token_index < len(self.tokens):
-            token = self.tokens[self.current_token_index]
-            self.current_token_index += 1
-            return token
-        return Token(TOKEN_EOF, '')
 
-# The parser directly outputs the CustomList/NLL structure, no SymPy needed.
+    def next(self):
+        if self.index < len(self.tokens):
+            token = self.tokens[self.index]
+            self.index += 1
+            return token
+        return Token(TOKEN_EOF, "")
+
+# --- Parser: Building the NLL from Tokens ---
 class Parser:
-    def __init__(self, tokenizer: Tokenizer, custom_vars: Dict[str, MySymbol]):
+    def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.custom_vars = custom_vars
         self.current_token = self.tokenizer.next()
 
-    def _eat(self, token_type: str):
+    def _eat(self, token_type):
         if self.current_token.type == token_type:
             self.current_token = self.tokenizer.next()
         else:
-            raise ValueError(f"Expected {token_type}, got {self.current_token.type} ('{self.current_token.value}')")
+            raise ValueError(f"Parser Error: Expected {token_type}, but got {self.current_token.type}")
 
     def parse(self):
         result = self._expr()
         if self.current_token.type != TOKEN_EOF:
-            raise ValueError("Unexpected token at end of expression")
+            raise ValueError("Parser Error: Unexpected token at end of expression")
         return result
 
-    def _expr(self) -> Any:
+    def _expr(self):  # Handles Addition (+) and Subtraction (-)
         node = self._term()
         while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('+', '-'):
             op = self.current_token.value
             self._eat(TOKEN_OPERATOR)
             right = self._term()
-            
-            # Binary operations: Add/Subtract
-            if op == '+':
-                node = CustomList(['Add', node, right])
-            else: # Implicitly 'Subtract' -> Add(node, Mul(-1, right))
-                right_negated = CustomList(['Mul', MY_NEG_ONE, right])
-                node = CustomList(['Add', node, right_negated])
+            node = [op, node, right]
         return node
 
-    def _term(self) -> Any:
+    def _term(self):  # Handles Multiplication (*) and Division (/)
         node = self._factor()
         while self.current_token.type == TOKEN_OPERATOR and self.current_token.value in ('*', '/'):
             op = self.current_token.value
             self._eat(TOKEN_OPERATOR)
             right = self._factor()
-            
-            # Binary operations: Mul/Divide
-            if op == '*':
-                node = CustomList(['Mul', node, right])
-            else: # Implicitly 'Divide' -> Mul(node, Pow(right, -1))
-                right_pow_neg_one = CustomList(['Pow', right, MY_NEG_ONE])
-                node = CustomList(['Mul', node, right_pow_neg_one])
+            node = [op, node, right]
         return node
 
-    def _factor(self) -> Any:
+    def _factor(self):  # Handles exponentiation (^)
         node = self._atom()
         if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
             self._eat(TOKEN_OPERATOR)
-            right = self._factor()
-            node = CustomList(['Pow', node, right])
+            right = self._factor()  # Right-associativity
+            node = ['^', node, right]
         return node
 
-    def _atom(self) -> Any:
+    def _atom(self):
         token = self.current_token
         if token.type == TOKEN_NUMBER:
             self._eat(TOKEN_NUMBER)
-            value = token.value
-            return MyFloat(float(value)) if '.' in value else MyInteger(int(value))
-            
+            return float(token.value)
         elif token.type == TOKEN_SYMBOL:
             self._eat(TOKEN_SYMBOL)
-            # Return custom symbol object
-            return self.custom_vars.get(token.value, MySymbol(token.value))
-            
+            return token.value
         elif token.type == TOKEN_FUNCTION:
             func_name = token.value
             self._eat(TOKEN_FUNCTION)
             self._eat(TOKEN_LPAREN)
             arg = self._expr()
             self._eat(TOKEN_RPAREN)
-            # Create a CustomList for the function call
-            return CustomList([func_name, arg])
-            
+            return [func_name, arg]
         elif token.type == TOKEN_LPAREN:
             self._eat(TOKEN_LPAREN)
             node = self._expr()
             self._eat(TOKEN_RPAREN)
             return node
-            
         elif token.type == TOKEN_OPERATOR and token.value == '-':
             self._eat(TOKEN_OPERATOR)
-            # Unary minus: -x -> Mul(-1, x)
-            return CustomList(['Mul', MY_NEG_ONE, self._factor()])
-            
-        raise ValueError(f"Unexpected token: {token}")
+            return ['*', -1.0, self._factor()]
+        raise ValueError(f"Parser Error: Unexpected token: {token}")
 
-# =====================================================================
-# 3. CUSTOM LATEX GENERATOR (REPLACING SYMPY.LATEX)
-# =====================================================================
+# --- Helper and Formatting Functions ---
+def to_latex(nll):
+    if not isinstance(nll, list):
+        if isinstance(nll, float):
+            return str(int(nll)) if nll.is_integer() else str(nll)
+        return str(nll)
 
-def nll_to_latex(nll_expr: Any, parent_op: Optional[str] = None) -> str:
-    """Recursively converts NLL structure into a LaTeX string with parentheses rules."""
-    
-    if isinstance(nll_expr, MySymbol):
-        return nll_expr.name
-    if isinstance(nll_expr, MyNumber):
-        # Format floats neatly, fall back to simple string for integers
-        if isinstance(nll_expr, MyFloat):
-            return f"{nll_expr:.4g}"
-        return str(int(nll_expr))
-    
-    if not isinstance(nll_expr, CustomList):
-        # Should not happen if all leaf nodes are covered
-        return str(nll_expr)
+    op = nll[0]
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '^': 3}
 
-    op = nll_expr[0]
-    args = nll_expr[1:]
-    
-    # Precedence lookup for implicit parentheses
-    # Higher number means higher precedence (e.g., Pow > Mul > Add)
-    precedence = {'Pow': 3, 'Mul': 2, 'Add': 1}
-    current_precedence = precedence.get(op, 4) # Function calls have highest precedence
+    def format_child(child_nll, is_left_child=False):
+        child_latex = to_latex(child_nll)
+        if not isinstance(child_nll, list):
+            return child_latex
 
-    def wrap_latex(sub_expr, child_op):
-        """Adds parentheses if the child's operator has lower precedence."""
-        child_precedence = precedence.get(child_op, 4)
-        latex_str = nll_to_latex(sub_expr, op)
+        child_op = child_nll[0]
+        op_prec = precedence.get(op, 99)
+        child_prec = precedence.get(child_op, 99)
+
+        if child_prec < op_prec or \
+           (child_prec == op_prec and ((op == '^' and is_left_child) or (op in "+-*/" and not is_left_child))):
+            return f"({child_latex})"
+        return child_latex
+
+    args_latex = [format_child(c, i == 0) for i, c in enumerate(nll[1:])]
+
+    if op == '+': return f"{args_latex[0]} + {args_latex[1]}"
+    if op == '-': return f"{args_latex[0]} - {args_latex[1]}"
+    if op == '*':
+        if nll[1] == -1.0: return f"-{args_latex[1]}"
+        if isinstance(nll[1], float): return f"{to_latex(nll[1])}{args_latex[1]}"
+        return f"{args_latex[0]} \\cdot {args_latex[1]}"
+    if op == '/': return f"\\frac{{{to_latex(nll[1])}}}{{{to_latex(nll[2])}}}"
+    if op == '^': return f"{{{args_latex[0]}}}^{{{args_latex[1]}}}"
+    if op in SUPPORTED_FUNCTIONS: return f"\\{op}({args_latex[0]})"
+    return f"{op}({', '.join(args_latex)})"
+
+def depends_on(nll, var):
+    if nll == var:
+        return True
+    if isinstance(nll, list):
+        return any(depends_on(child, var) for child in nll[1:])
+    return False
+
+# --- Expression Simplifier ---
+class Simplifier:
+    def __init__(self):
+        self.memo = {}
+
+    def _to_tuple(self, nll):
+        """Recursively converts a nested list to a nested tuple for hashing."""
+        if isinstance(nll, list):
+            return tuple(self._to_tuple(item) for item in nll)
+        return nll
+
+    def run(self, nll):
+        # Use a hashable tuple version as the key for memoization
+        key = self._to_tuple(nll)
+        if key in self.memo:
+            return self.memo[key]
         
-        # Check if the child is an operation with lower or equal precedence to the current operation
-        if child_precedence <= current_precedence and child_op != op:
-             return f"\\left({latex_str}\\right)"
-        
-        # Special case for negative numbers/symbols when part of a product
-        if op == 'Mul' and isinstance(sub_expr, CustomList) and sub_expr[0] == 'Add':
-            return f"\\left({latex_str}\\right)"
-            
-        return latex_str
+        if not isinstance(nll, list):
+            return nll
 
-    if op == 'Add':
-        terms = []
-        for i, arg in enumerate(args):
-            # Check for subtraction (implicit negation)
-            if isinstance(arg, CustomList) and arg[0] == 'Mul':
-                # Check for Mul(-1, X)
-                if arg[1] == MY_NEG_ONE:
-                    terms.append(f"-{wrap_latex(arg[2], 'Mul')}")
-                    continue
-            
-            # Simple addition
-            term_latex = nll_to_latex(arg, op)
-            if i > 0 and not term_latex.startswith('-'):
-                terms.append(f"+{term_latex}")
+        simplified_children = [self.run(child) for child in nll[1:]]
+        op = nll[0]
+        result_nll = None
+
+        if op in ('+', '-', '*', '/'):
+            left, right = simplified_children
+            if op == '+':
+                if left == 0.0: result_nll = right
+                elif right == 0.0: result_nll = left
+                elif isinstance(left, float) and isinstance(right, float): result_nll = left + right
+            elif op == '-':
+                if right == 0.0: result_nll = left
+                elif left == right: result_nll = 0.0
+                elif isinstance(left, float) and isinstance(right, float): result_nll = left - right
+            elif op == '*':
+                if left == 0.0 or right == 0.0: result_nll = 0.0
+                elif left == 1.0: result_nll = right
+                elif right == 1.0: result_nll = left
+                elif isinstance(left, float) and isinstance(right, float): result_nll = left * right
+            elif op == '/':
+                if left == 0.0: result_nll = 0.0
+                elif right == 1.0: result_nll = left
+                elif left == right and left != 0.0: result_nll = 1.0
+                elif isinstance(left, float) and isinstance(right, float) and right != 0.0: result_nll = left / right
+
+        elif op == '^':
+            base, exp = simplified_children
+            if exp == 1.0: result_nll = base
+            elif exp == 0.0: result_nll = 1.0
+            elif base == 1.0: result_nll = 1.0
+            elif base == 0.0: result_nll = 0.0
+
+        if result_nll is None:
+            result_nll = [op] + simplified_children
+        
+        # Store the result (a list) in the memo using the tuple key
+        self.memo[key] = result_nll
+        return result_nll
+
+# --- Derivative Computation with Step-by-Step Logging ---
+class Differentiator:
+    def __init__(self, variable):
+        self.variable = variable
+        self.steps = []
+
+    def _add_step(self, nll, rule_key, explanation, prefix="= "):
+        self.steps.append({
+            "id": f"step_{len(self.steps)}_{rule_key}",
+            "prefix": prefix,
+            "parts": [{"latex": to_latex(nll), "explanation_key": rule_key}],
+            "explanation_text": explanation
+        })
+
+    def run(self, nll):
+        self._add_step(nll, "initial_expression", "Differentiating the expression:", prefix=f"\\frac{{d}}{{d{self.variable}}}")
+        return self._differentiate(nll)
+
+    def _apply_chain_rule(self, nll, op, result_func):
+        u = nll[1]
+        rule_name = op.capitalize() + " Rule"
+        self._add_step(nll, f"{op}Rule_start", f"Applying the Chain Rule for {op.capitalize()}:")
+        du = self._differentiate(u)
+        result_nll = result_func(u, du)
+        self._add_step(result_nll, f"{op}Rule_result", f"Result of the {rule_name}.")
+        return result_nll
+
+    def _differentiate(self, nll):
+        if not isinstance(nll, list):
+            if nll == self.variable:
+                self._add_step(nll, "variableRule", f"The derivative of {self.variable} is 1.")
+                return 1.0
+            if isinstance(nll, (int, float, str)):
+                self._add_step(nll, "constantRule", f"The derivative of a constant is 0.")
+                return 0.0
+            return nll
+
+        op = nll[0]
+        args = nll[1:]
+
+        if op in ('+', '-'):
+            self._add_step(nll, "sumRule_start", "Applying the Sum/Difference Rule.")
+            d_args = [self._differentiate(arg) for arg in args]
+            result_nll = [op] + d_args
+            self._add_step(result_nll, "sumRule_result", "Result of the Sum/Difference Rule.")
+            return result_nll
+
+        if op == '*':
+            u, v = args
+            self._add_step(nll, "productRule_start", "Applying the Product Rule: ")
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            result_nll = ['+', ['*', du, v], ['*', u, dv]]
+            self._add_step(result_nll, "productRule_result", "Result of the Product Rule.")
+            return result_nll
+
+        if op == '/':
+            u, v = args
+            self._add_step(nll, "quotientRule_start", "Applying the Quotient Rule: ")
+            du = self._differentiate(u)
+            dv = self._differentiate(v)
+            num = ['-', ['*', du, v], ['*', u, dv]]
+            den = ['^', v, 2.0]
+            result_nll = ['/', num, den]
+            self._add_step(result_nll, "quotientRule_result", "Result of the Quotient Rule.")
+            return result_nll
+
+        if op == '^':
+            base, exp = args
+            if not depends_on(exp, self.variable):
+                self._add_step(nll, "powerRule_start", "Applying the Power Rule: ")
+                du = self._differentiate(base)
+                new_exp = exp - 1.0
+                term1 = ['*', exp, ['^', base, new_exp]]
+                result_nll = ['*', term1, du]
+                self._add_step(result_nll, "powerRule_result", "Result of the Power Rule.")
+                return result_nll
             else:
-                terms.append(term_latex)
-        
-        result = "".join(terms).replace('+-', '-')
-        
-    elif op == 'Mul':
-        numerators = []
-        denominators = []
-        
-        for arg in args:
-            if isinstance(arg, CustomList) and arg[0] == 'Pow' and arg[2] == MY_NEG_ONE:
-                # 1/x -> Pow(x, -1) -> denominator
-                denominators.append(wrap_latex(arg[1], 'Pow'))
-            else:
-                numerators.append(wrap_latex(arg, op))
-                
-        if denominators:
-            num_str = "".join(numerators) if numerators else "1"
-            den_str = "".join(denominators)
-            result = f"\\frac{{{num_str}}}{{{den_str}}}"
-        else:
-            result = "".join(numerators)
-            
-    elif op == 'Pow':
-        base = wrap_latex(args[0], op)
-        exponent = nll_to_latex(args[1], op)
-        
-        # Use braces for base if it's not a single symbol
-        if isinstance(args[0], CustomList):
-            base = f"\\left({nll_to_latex(args[0])}\\right)"
-        
-        result = f"{base}^{{{exponent}}}"
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
 
-    # Standard Functions (sin, cos, log, etc.)
-    elif op in ['sin', 'cos', 'tan', 'sec', 'csc', 'cot']:
-        result = f"\\{op}\\left({nll_to_latex(args[0])}\\right)"
-    elif op == 'log':
-        result = f"\\ln\\left({nll_to_latex(args[0])}\\right)"
-    elif op == 'exp':
-        # e^u
-        result = f"e^{{{nll_to_latex(args[0])}}}"
-    elif op == 'sqrt':
-        # sqrt(u)
-        result = f"\\sqrt{{{nll_to_latex(args[0])}}}"
-    else:
-        # Fallback for unhandled operator strings
-        result = f"\\text{{UnknownOp}}({', '.join(nll_to_latex(a) for a in args)})"
-
-    # Wrap the entire expression in parentheses if current precedence is lower than parent's
-    if parent_op and precedence.get(parent_op, 4) > current_precedence:
-        return f"\\left({result}\\right)"
+        if op in SUPPORTED_FUNCTIONS:
+            if op == 'sin': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['cos', u], du])
+            if op == 'cos': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['*', -1.0, ['sin', u]], du])
+            if op == 'tan': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['^', ['sec', u], 2.0], du])
+            if op == 'sec': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['*', ['sec', u], ['tan', u]], du])
+            if op == 'csc': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['*', -1.0, ['csc', u]], ['*', ['cot', u], du]])
+            if op == 'cot': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['*', -1.0, ['^', ['csc', u], 2.0]], du])
+            if op == 'exp': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['exp', u], du])
+            if op == 'log': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['/', 1.0, u], du])
+            if op == 'sqrt': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['/', 1.0, ['*', 2.0, nll]], du])
         
-    return result
+        raise ValueError(f"Differentiation rule for '{op}' not implemented.")
 
-# =====================================================================
-# 4. CORE DIFFERENTIATION LOGIC (NLL-BASED)
-# =====================================================================
-
-def _add_step(steps_list, expr_nll, rule_key, explanation, prefix="= "):
-    """Helper to format differentiation steps for output using the custom LaTeX generator."""
-    
-    # Check if expr_nll is already a leaf node (like MY_ZERO)
-    if not isinstance(expr_nll, (CustomList, MySymbol, MyNumber)):
-        latex_str = str(expr_nll)
-    else:
-        latex_str = nll_to_latex(expr_nll)
-
-    steps_list.append({
-        "id": f"step_{len(steps_list)}_{rule_key}",
-        "prefix": prefix,
-        "parts": [{"latex": latex_str, "rule_id": rule_key, "explanation_key": rule_key}],
-        "explanation_text": explanation
-    })
-
-def compute_derivative_nll(expression_str: str, variable_str: str):
-    """
-    Computes the symbolic derivative using the NLL representation.
-    """
-    tracemalloc.start()    
+# --- Main Compute Function ---
+def compute_derivative_nll(expression_str, variable_str):
+    tracemalloc.start()
     start_time = time.perf_counter()
-    steps = []
-    
-    # The variable we are differentiating with respect to, as a CUSTOM object
-    variable_symbol = MySymbol(variable_str)
-    
-    differentiated_nll = None
+
     try:
-        # Step 1: Parse the string directly into our NLL representation
         tokenizer = Tokenizer(expression_str)
-        parser = Parser(tokenizer, {variable_str: variable_symbol})
-        nll_tree = parser.parse()
+        parser = Parser(tokenizer)
+        expression_nll = parser.parse()
 
-        _add_step(steps, nll_tree, "initial_expression", "Differentiating with NLL:",
-                    prefix=f"\\frac{{d}}{{d{variable_str}}}")
-        
-        def _compute_nll_derivative_recursive(nll, var):
-            """Recursively applies differentiation rules to the NLL structure."""
-            # --- Base Case: Leaf Nodes ---
-            if not isinstance(nll, CustomList):
-                if nll == var:
-                    _add_step(steps, MY_ONE, "variableRule", f"The derivative of {variable_str} is 1.")
-                    return MY_ONE
-                if isinstance(nll, MyNumber) or not nll.has(var):
-                    _add_step(steps, MY_ZERO, "constantRule", f"The derivative of a constant is 0.")
-                    return MY_ZERO
-                
-                raise ValueError(f"Unhandled leaf node type or complex symbol: {nll}")
-                
-            op = nll[0]
-            
-            # --- Rule: Add (Sum Rule) ---
-            if op == 'Add':
-                _add_step(steps, nll, "sumRule_start", "Applying the Sum Rule:")
-                # Differentiate each child
-                args = CustomList([_compute_nll_derivative_recursive(nll[i], var) for i in range(1, len(nll))])
-                result_nll = CustomList(['Add']) + args
-                _add_step(steps, result_nll, "sumRule_result", "The sum of the derivatives is:")
-                return result_nll
-            
-            # --- Rule: Mul (Product Rule) ---
-            if op == 'Mul':
-                _add_step(steps, nll, "productRule_start", "Applying the Product Rule.")
-                terms = CustomList()
-                
-                # Product Rule (u * v * w)' = u'vw + uv'w + uvw'
-                for i in range(1, len(nll)):
-                    # Term to differentiate is nll[i]
-                    d_term = _compute_nll_derivative_recursive(nll[i], var)
-                    
-                    # Create the product (d_term * remaining_terms)
-                    d_product_args = CustomList([d_term])
-                    for j in range(1, len(nll)):
-                        if i != j:
-                            d_product_args.append(nll[j])
-                    
-                    terms.append(CustomList(['Mul']) + d_product_args)
-                
-                result_nll = CustomList(['Add']) + terms
-                _add_step(steps, result_nll, "productRule_result", "The result of the Product Rule is:")
-                return result_nll
+        differentiator = Differentiator(variable_str)
+        derivative_nll = differentiator.run(expression_nll)
 
-            # --- Rule: Pow (Simple Power Rule / Chain Rule for constant exponent) ---
-            if op == 'Pow':
-                base, exp_nll = nll[1], nll[2]
-                
-                # Simple Power Rule (exponent is a constant and doesn't contain the variable)
-                if not exp_nll.has(var) and isinstance(exp_nll, MyNumber):
-                    _add_step(steps, nll, "powerRule_start", "Applying the Power Rule (Constant Exponent):")
-                    
-                    # New exponent: exp - 1
-                    # Note: We must check if exp_nll is an integer before using integer arithmetic
-                    if isinstance(exp_nll, MyInteger):
-                         new_exp = MyInteger(int(exp_nll) - 1)
-                    else:
-                         new_exp = MyFloat(float(exp_nll) - 1.0)
-                         
-                    # d/dx(u^n) = n * u^(n-1) * du/dx (Chain Rule for base u)
-                    du = _compute_nll_derivative_recursive(base, var)
-                    
-                    new_pow = CustomList(['Pow', base, new_exp])
-                    result_nll = CustomList(['Mul', exp_nll, new_pow, du])
-                    
-                    _add_step(steps, result_nll, "powerRule_result", "Result of the Power Rule:")
-                    return result_nll
-                
-                # Complex Power Rule (Exponent is a function of the variable) is not supported 
-                # without SymPy or complex rule implementations.
-                raise ValueError("Complex Power Rule (u^v where v is not constant) is not supported by NLL engine.")
-                
-            def apply_chain_rule(rule_name, display_rule, result_func_nll):
-                """Helper function for single-argument function derivatives (Chain Rule)."""
-                u_nll = nll[1]
-                _add_step(steps, nll, f"{rule_name}Rule_start", f"Applying the {display_rule} Rule (Chain Rule):")
-                
-                # Differentiate the inner function (u)
-                du_nll = _compute_nll_derivative_recursive(u_nll, var)
-                
-                # Apply the derivative of the outer function times the derivative of the inner function
-                result_nll = result_func_nll(u_nll, du_nll)
-                _add_step(steps, result_nll, f"{rule_name}Rule_result", "The result for the function is:")
-                return result_nll
+        simplifier = Simplifier()
+        simplified_nll = simplifier.run(derivative_nll)
 
-            # --- Rule: sin ---
-            if op == 'sin':
-                return apply_chain_rule("sin", "Sine", 
-                    lambda u, du: CustomList(['Mul', CustomList(['cos', u]), du]))
-            # --- Rule: cos ---
-            if op == 'cos':
-                return apply_chain_rule("cos", "Cosine", 
-                    lambda u, du: CustomList(['Mul', MY_NEG_ONE, CustomList(['sin', u]), du]))
-            # --- Rule: tan (d/dx(tan(u)) = sec(u)^2 * du) ---
-            if op == 'tan':
-                sec_sq = CustomList(['Pow', CustomList(['sec', u]), MY_TWO])
-                return apply_chain_rule("tan", "Tangent", 
-                    lambda u, du: CustomList(['Mul', sec_sq, du]))
-            # --- Rule: log (d/dx(log(u)) = u^(-1) * du) ---
-            if op == 'log':
-                u_neg_1 = CustomList(['Pow', u, MY_NEG_ONE])
-                return apply_chain_rule("log", "Natural Log", 
-                    lambda u, du: CustomList(['Mul', u_neg_1, du]))
-            # --- Rule: exp (d/dx(exp(u)) = exp(u) * du) ---
-            if op == 'exp':
-                return apply_chain_rule("exp", "Exponential", 
-                    lambda u, du: CustomList(['Mul', CustomList(['exp', u]), du]))
-            # --- Rule: sqrt (d/dx(sqrt(u)) = 0.5 * u^(-0.5) * du) ---
-            if op == 'sqrt':
-                u_neg_half = CustomList(['Pow', u, MY_NEG_HALF])
-                return apply_chain_rule("sqrt", "Square Root", 
-                    lambda u, du: CustomList(['Mul', MY_HALF, u_neg_half, du]))
+        steps = differentiator.steps
+        derivative_latex = to_latex(simplified_nll)
+        steps.append({
+            "id": "final_derivative",
+            "prefix": "= ",
+            "parts": [{"latex": derivative_latex, "explanation_key": "final_derivative"}],
+            "explanation_text": "The final derivative is:"
+        })
 
-            # --- UNHANDLED / FALLBACK EXCEPTION ---
-            raise ValueError(f"Operator '{op}' is not supported by the NLL differentiation ruleset.")
-
-        differentiated_nll = _compute_nll_derivative_recursive(nll_tree, variable_symbol)
-        
     except Exception as e:
-        logger.error(f"Error during NLL differentiation: {e}")
-        # Return the error message as the final result if something goes wrong
-        final_derivative_latex = f"\\text{{Error: }} {str(e)}"
-        differentiated_nll = MySymbol("ERROR") # Placeholder        
-        
-    else:
-        # Final expression generated
-        final_derivative_latex = nll_to_latex(differentiated_nll)
+        logger.error(f"Error computing NLL derivative for '{expression_str}': {e}", exc_info=True)
+        derivative_latex = f"\\text{{Error: {str(e)}}}"
+        steps = [{"id": "error", "prefix": "Error:", "parts": [], "explanation_text": str(e)}]
+    
+    finally:
+        end_time = time.perf_counter()
+        _, peak_memory = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
 
-    end_time = time.perf_counter()
-    execution_time_ms = (end_time - start_time) * 1000
-    end_time = time.perf_counter()    
-    _, peak_memory = tracemalloc.get_traced_memory()
-    tracemalloc.stop()    
-    _add_step(steps, differentiated_nll, "final_derivative", "The final derivative is:")
-
-    # Return the dictionary of results
     return {
-        "derivative_latex": final_derivative_latex,
+        "derivative_latex": derivative_latex,
         "steps": steps,
-        "execution_time_ms": execution_time_ms,
-        "peak_memory_bytes": peak_memory 
+        "execution_time_ms": (end_time - start_time) * 1000,
+        "peak_memory_bytes": peak_memory,
     }
 
