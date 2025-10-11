@@ -173,7 +173,11 @@ def to_latex(nll):
     if op == '-': return f"{args_latex[0]} - {args_latex[1]}"
     if op == '*':
         if nll[1] == -1.0: return f"-{args_latex[1]}"
-        if isinstance(nll[1], float): return f"{to_latex(nll[1])}{args_latex[1]}"
+        
+        # Rule 2: Use implicit multiplication for a number and a variable/function (e.g., 4x)
+        if isinstance(nll[1], float) and not isinstance(nll[2], float): return f"{to_latex(nll[1])}{args_latex[1]}"
+
+        # Rule 3 (Default): For all other cases (x*y, x*4, 4*1), use \cdot
         return f"{args_latex[0]} \\cdot {args_latex[1]}"
     if op == '/': return f"\\frac{{{to_latex(nll[1])}}}{{{to_latex(nll[2])}}}"
     if op == '^': return f"{{{args_latex[0]}}}^{{{args_latex[1]}}}"
@@ -225,6 +229,14 @@ class Simplifier:
                 if left == 0.0 or right == 0.0: result_nll = 0.0
                 elif left == 1.0: result_nll = right
                 elif right == 1.0: result_nll = left
+                # Associativity rule: a * (b * c) -> (a * b) * c
+                elif isinstance(left, float) and isinstance(right, list) and right[0] == '*' and isinstance(right[1], float):
+                    new_const = left * right[1]
+                    result_nll = ['*', new_const, right[2]]
+                # Associativity rule: (a * b) * c -> (a * c) * b
+                elif isinstance(right, float) and isinstance(left, list) and left[0] == '*' and isinstance(left[1], float):
+                    new_const = right * left[1]
+                    result_nll = ['*', new_const, left[2]]
                 elif isinstance(left, float) and isinstance(right, float): result_nll = left * right
             elif op == '/':
                 if left == 0.0: result_nll = 0.0
@@ -380,4 +392,5 @@ def compute_derivative_nll(expression_str, variable_str):
         "execution_time_ms": (end_time - start_time) * 1000,
         "peak_memory_bytes": peak_memory,
     }
+
 

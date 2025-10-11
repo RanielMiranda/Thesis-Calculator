@@ -214,13 +214,22 @@ def to_latex(node):
     if op == '-':
         return f"{args_latex[0]} - {args_latex[1]}"
     if op == '*':
-        # handle -1.0 * X -> -X
-        if node.children[0].value == -1.0 and not node.children[0].children:
-            return f"-{args_latex[1]}"
-        left_is_num = isinstance(node.children[0].value, float) and not node.children[0].children
-        if left_is_num:
-            return f"{to_latex(node.children[0])}{args_latex[1]}"
-        return f"{args_latex[0]} \\cdot {args_latex[1]}"
+            left_child = node.children[0]
+            right_child = node.children[1]
+
+            is_left_const = isinstance(left_child.value, float) and not left_child.children
+            is_right_const = isinstance(right_child.value, float) and not right_child.children
+
+            # Rule 1: Handle unary minus like -x
+            if is_left_const and left_child.value == -1.0:
+                return f"-{args_latex[1]}"
+
+            # Rule 2: Use implicit multiplication for a number and a variable/function (e.g., 4x)
+            if is_left_const and not is_right_const:
+                return f"{to_latex(left_child)}{args_latex[1]}"
+
+            # Rule 3 (Default): For all other cases (x*y, x*4, 4*1), use \cdot
+            return f"{args_latex[0]} \\cdot {args_latex[1]}"
 
     if op == '/':
         return f"\\frac{{{to_latex(node.children[0])}}}{{{to_latex(node.children[1])}}}"
@@ -280,6 +289,24 @@ class Simplifier:
                 result_node = left
             elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
                 result_node = ASTNode(left.value * right.value)
+            
+            else:
+                # Helper to check if a node is a simple numeric constant
+                def is_constant(n):
+                    return isinstance(n.value, (float, int)) and not n.children
+
+                # Pattern: C1 * (C2 * X)  ->  (C1 * C2) * X
+                if is_constant(left) and right.value == '*' and is_constant(right.children[0]):
+                    new_const_val = left.value * right.children[0].value
+                    # Rebuild the node and simplify it again recursively
+                    new_node = ASTNode('*', [ASTNode(new_const_val), right.children[1]])
+                    result_node = self.run(new_node)
+                
+                # Pattern: (X * C1) * C2  ->  X * (C1 * C2)
+                elif is_constant(right) and left.value == '*' and is_constant(left.children[1]):
+                    new_const_val = right.value * left.children[1].value
+                    new_node = ASTNode('*', [left.children[0], ASTNode(new_const_val)])
+                    result_node = self.run(new_node)
 
         elif op == '/':
             left, right = simplified_children

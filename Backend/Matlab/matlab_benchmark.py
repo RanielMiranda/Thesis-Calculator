@@ -1,11 +1,7 @@
 import importlib
 
 def run_benchmark(structure_name, expression, variable='x'):
-    """
-    Runs a derivative computation from the specified structure (module name).
-    structure_name: e.g. 'derivative_ds', 'dag', 'nll'
-    expression: expression string to differentiate
-    """
+
     # Dynamically import the structure file
     module = importlib.import_module(structure_name)
     

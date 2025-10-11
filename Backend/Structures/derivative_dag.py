@@ -95,9 +95,6 @@ class Tokenizer:
         return Token(TOKEN_EOF, '')
 
 class Parser:
-    """
-    Parses the token stream into a canonical DAG structure.
-    """
     def __init__(self, tokenizer: Tokenizer):
         self.tokenizer = tokenizer
         self.current_token = self.tokenizer.next()
@@ -111,7 +108,6 @@ class Parser:
             raise ValueError(f"Expected {token_type}, got {self.current_token.type} ('{self.current_token.value}')")
 
     def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
-        """Creates a canonical DAGNode, reusing existing nodes if possible."""
         key = (value, children)
         if key in self.canonical_nodes:
             return self.canonical_nodes[key]
@@ -187,7 +183,6 @@ class Parser:
 # --- Helper and Formatting Functions ---
 
 def to_latex(node: DAGNode):
-    """Converts a DAGNode structure into a LaTeX string."""
     if not node.children:
         if isinstance(node.value, float):
             # Format floating point numbers nicely for display
@@ -230,7 +225,7 @@ def to_latex(node: DAGNode):
         if isinstance(node.children[0].value, float) and abs(node.children[0].value - 1.0) < 1e-9 and not node.children[0].children:
              return args_latex[1]
         if isinstance(node.children[1].value, float) and abs(node.children[1].value - 1.0) < 1e-9 and not node.children[1].children:
-             return args_latex[0]
+             return f"(\\cdot {args_latex[0]})"
 
         # Implicit multiplication for non-constants (2x or cos(x) 2x)
         if isinstance(node.children[0].value, float) and not node.children[0].children:
@@ -252,7 +247,6 @@ def to_latex(node: DAGNode):
     return f"{op}({', '.join(args_latex)})"
 
 def depends_on(node: DAGNode, var: str):
-    """Checks if a DAGNode sub-tree depends on the variable 'var'."""
     if node.value == var:
         return True
     return any(depends_on(child, var) for child in node.children)
@@ -260,7 +254,6 @@ def depends_on(node: DAGNode, var: str):
 
 # --- Expression Simplifier ---
 class Simplifier:
-    """Simplifies the DAG structure using algebraic identities and constant folding."""
     def __init__(self, canonical_nodes: Dict[Tuple, DAGNode]):
         self.memo: Dict[DAGNode, DAGNode] = {}
         self.canonical_nodes = canonical_nodes
@@ -269,7 +262,6 @@ class Simplifier:
         self.neg_one = self._create_node(-1.0)
 
     def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
-        """Factory method to ensure all generated nodes are canonical."""
         key = (value, children)
         if key in self.canonical_nodes:
             return self.canonical_nodes[key]
@@ -330,6 +322,24 @@ class Simplifier:
                     result_node = left
                 elif isinstance(left.value, float) and isinstance(right.value, float) and not left.children and not right.children:
                     result_node = self._create_node(left.value * right.value)
+                
+                else:
+                    # Helper to check if a node is a simple numeric constant
+                    def is_constant(n):
+                        return isinstance(n.value, (float, int)) and not n.children
+
+                    # Pattern: C1 * (C2 * X)  ->  (C1 * C2) * X
+                    if is_constant(left) and right.value == '*' and is_constant(right.children[0]):
+                        new_const_val = left.value * right.children[0].value
+                        # Rebuild using the canonical node creator and simplify recursively
+                        new_node = self._create_node('*', (self._create_node(new_const_val), right.children[1]))
+                        result_node = self.run(new_node)
+                    
+                    # Pattern: (X * C1) * C2  ->  X * (C1 * C2)
+                    elif is_constant(right) and left.value == '*' and is_constant(left.children[1]):
+                        new_const_val = right.value * left.children[1].value
+                        new_node = self._create_node('*', (left.children[0], self._create_node(new_const_val)))
+                        result_node = self.run(new_node)
 
         elif op == '/':
             if left is not None and right is not None:
@@ -368,7 +378,6 @@ class Simplifier:
 
 # --- Derivative Computation with Memoization (DAG advantage) ---
 class Differentiator:
-    """Computes the derivative of a DAG expression using the Chain Rule and memoization."""
     def __init__(self, variable: str, canonical_nodes: Dict[Tuple, DAGNode]):
         self.variable = variable
         self.steps = []
@@ -381,7 +390,6 @@ class Differentiator:
         self.neg_one = self._create_node(-1.0)
 
     def _create_node(self, value, children: Tuple[DAGNode, ...] = tuple()) -> DAGNode:
-        """Factory method to ensure all generated nodes are canonical."""
         key = (value, children)
         if key in self.canonical_nodes:
             return self.canonical_nodes[key]
@@ -543,9 +551,6 @@ class Differentiator:
 
 # --- Main Compute Function ---
 def compute_derivative_dag(expression_str: str, variable_str: str):
-    """
-    Computes the symbolic derivative using a canonical DAG structure.
-    """
     tracemalloc.start()
     start_time = time.perf_counter()
     
