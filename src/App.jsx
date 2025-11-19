@@ -4,8 +4,6 @@ import Homepage from "./Pages/HomePage/HomePage";
 import Solver from "./Pages/Solver/Solver";
 
 
-
-
 function App() {
 return (
       <Router>

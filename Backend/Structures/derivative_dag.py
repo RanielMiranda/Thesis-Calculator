@@ -54,7 +54,7 @@ class Token:
 class Tokenizer:
     # Use word boundaries for functions to avoid partial matches (e.g., "sine")
     TOKEN_SPECS = [
-        (r'\b(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)\b', TOKEN_FUNCTION),
+        (r'(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)(?=\s*\()', TOKEN_FUNCTION),
         (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
         (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
@@ -144,7 +144,7 @@ class Parser:
         node = self._atom()
         if self.current_token.type == TOKEN_OPERATOR and self.current_token.value == '^':
             self._eat(TOKEN_OPERATOR)
-            right = self._factor() # Right-associativity
+            right = self._factor() 
             node = self._create_node('^', (node, right))
         return node
     
@@ -185,7 +185,6 @@ class Parser:
 def to_latex(node: DAGNode):
     if not node.children:
         if isinstance(node.value, float):
-            # Format floating point numbers nicely for display
             return str(int(node.value)) if node.value.is_integer() else str(node.value)
         return str(node.value)
 
@@ -292,8 +291,7 @@ class Simplifier:
         def is_float_equal(n: Optional[DAGNode], target_value: float) -> bool:
             return (n is not None) and isinstance(n.value, float) and abs(n.value - target_value) < 1e-9 and not n.children
 
-        # --- Simplification Rules (clean, non-contradictory) ---
-        # Numeric folding where possible
+        # --- Simplification Rules ---
         if op == '+':
             if left is not None and right is not None:
                 if is_float_equal(left, 0.0):
@@ -324,7 +322,6 @@ class Simplifier:
                     result_node = self._create_node(left.value * right.value)
                 
                 else:
-                    # Helper to check if a node is a simple numeric constant
                     def is_constant(n):
                         return isinstance(n.value, (float, int)) and not n.children
 
@@ -369,7 +366,6 @@ class Simplifier:
 
         # If no simplification rule was hit, rebuild the node from simplified children
         if result_node is None:
-            # Use _create_node to ensure the rebuilt node is also canonical
             result_node = self._create_node(op, simplified_children)
 
         # Cache the result and return
@@ -494,7 +490,6 @@ class Differentiator:
                 result_node = self._create_node('*', (term1, du)) # (c * u^(c-1)) * u'
                 power_rule_result(result_node)
             else:
-                # fallback: derivative for f(x)^g(x) not implemented
                 raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
 
         # --- Chain Rule: functions ---
@@ -514,11 +509,9 @@ class Differentiator:
                 inner = self._create_node('cos', (u,))
                 result_node = apply_chain_rule("sin", inner)
             elif op == 'cos':
-                # -sin(u)
                 inner = self._create_node('*', (self.neg_one, self._create_node('sin', (u,))))
                 result_node = apply_chain_rule("cos", inner)
             elif op == 'tan':
-                # sec(u)^2
                 inner = self._create_node('^', (self._create_node('sec', (u,)), self._create_node(2.0)))
                 result_node = apply_chain_rule("tan", inner)
             elif op == 'sec':

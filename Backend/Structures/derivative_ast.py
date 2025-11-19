@@ -124,10 +124,8 @@ class Parser:
                 node = ASTNode(op, [node, right])
                 continue
 
-            # implicit multiplication: (after a factor) if next token starts another atom/ factor
-            # cases that signal implicit multiplication: number, symbol, function, '('
+            # implicit multiplication
             if self.current_token.type in (TOKEN_NUMBER, TOKEN_SYMBOL, TOKEN_FUNCTION, TOKEN_LPAREN):
-                # treat as multiplication
                 right = self._factor()
                 node = ASTNode('*', [node, right])
                 continue
@@ -291,7 +289,6 @@ class Simplifier:
                 result_node = ASTNode(left.value * right.value)
             
             else:
-                # Helper to check if a node is a simple numeric constant
                 def is_constant(n):
                     return isinstance(n.value, (float, int)) and not n.children
 

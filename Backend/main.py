@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from sympy import symbols, latex
 
-# Import the derivative computation and expression generation functions
+# Derivative computation and expression generation functions
 from Structures.derivative_ast import compute_derivative_ast
 from Structures.derivative_dag import compute_derivative_dag
 from Structures.derivative_nll import compute_derivative_nll
@@ -91,7 +91,6 @@ async def benchmark_generator(expression: str, variable: str):
                     times.append(result_data['execution_time_ms'])
                     memories.append(result_data['peak_memory_bytes'])
                     
-                    # Capture the derivative and steps from the first measured run
                     if i == warmup_runs:
                         derivative_latex = result_data.get('derivative_latex', '')
                         steps = result_data.get('steps', [])

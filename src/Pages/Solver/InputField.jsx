@@ -1,4 +1,3 @@
-// InputField.jsx
 import React from 'react';
 import { MathJax } from "better-react-mathjax";
 
@@ -80,7 +79,6 @@ const InputField = ({ input, handleInputChange, setInput, solveExpression, inser
         <h className="text-primary font-bold text-lg">This is Displayed as:</h>
         <div className="flex bg-secondary w-full mx-auto rounded-md p-2 items-center justify-center">
           <MathJax className = "text-dark">
-            {/* Use the formatForMathJax prop provided by Solver */}
             {`$$\\frac{d}{dx} = ${formatForMathJax(input)}$$`}
           </MathJax>
         </div>

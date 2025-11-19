@@ -88,7 +88,6 @@ const Solver = () => {
                     setProgress(data.progress);
                 } else if (data.type === 'complete') {
                     setResults(data.results);
-                    // Set the main derivative display from one of the results
                     const firstResult = Object.values(data.results)[0];
                     if (firstResult && firstResult.derivative) {
                         setDerivative(firstResult.derivative);

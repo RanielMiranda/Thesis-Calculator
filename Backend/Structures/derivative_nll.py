@@ -35,7 +35,7 @@ class Token:
 class Tokenizer:
     TOKEN_SPECS = [
         (r'\d+\.?\d*|\.\d+', TOKEN_NUMBER),
-        (r'\b(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)\b', TOKEN_FUNCTION),
+        (r'(?:sin|cos|tan|sec|csc|cot|exp|log|sqrt)(?=\s*\()', TOKEN_FUNCTION),
         (r'[a-zA-Z_][a-zA-Z0-9_]*', TOKEN_SYMBOL),
         (r'[\+\-\*\/^]', TOKEN_OPERATOR),
         (r'\(', TOKEN_LPAREN),

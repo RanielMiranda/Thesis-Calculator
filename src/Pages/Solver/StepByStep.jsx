@@ -1,4 +1,3 @@
-// StepByStep.jsx
 import React, { useState, useMemo } from 'react';
 import { MathJax } from "better-react-mathjax";
 
@@ -40,10 +39,6 @@ const StepByStep = ({ steps }) => {
     const [hoveredExplanation, setHoveredExplanation] = useState(null);
     const [popupPosition, setPopupPosition] = useState({ top: 0, left: 0 });
 
-    /**
-     * Pre-processes the flat list of steps from the backend into a hierarchical
-     * structure with indentation levels for rendering as a tree.
-     */
     const processedSteps = useMemo(() => {
         if (!steps || steps.length === 0) return [];
 
@@ -51,7 +46,6 @@ const StepByStep = ({ steps }) => {
         const stepData = [];
 
         for (const step of steps) {
-            // Extract the rule key from the step data
             const ruleKey = step.parts[0]?.explanation_key || step.id.split('_').slice(2).join('_');
             
             // Decrease indent level when a rule's result is shown
@@ -139,7 +133,7 @@ const StepByStep = ({ steps }) => {
                         top: `${popupPosition.top}px`,
                         left: `${popupPosition.left}px`,
                         transform: 'translate(-50%, -100%)', // Position above and centered on cursor
-                        pointerEvents: 'none' // Prevent the popup from capturing mouse events
+                        pointerEvents: 'none'
                     }}
                 >
                     <p>{hoveredExplanation}</p>

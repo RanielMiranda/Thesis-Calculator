@@ -3,15 +3,15 @@ from sympy import symbols, S, sin, cos, tan, Add, Mul, Pow, sec, csc, cot
 
 def generate_random_expression(variables, num_terms=3, max_depth=2):
     # Define available functions and operators
-    # The list now only includes the specified functions and operators.
     operators = [Add, Mul, Pow]
     functions = [sin, cos, tan, sec, csc, cot]
     
-    # Simple leaf nodes (variables or constants)
     def create_leaf():
-        if random.random() < 0.7:  # 70% chance of being a variable
+        if random.random() < 0.7:  
+            # 70% chance of being a variable
             return random.choice(variables)
-        else: # 30% chance of being a constant
+        else: 
+            # 30% chance of being a constant
             return S(random.randint(1, 10))
 
     # Recursive function to build the tree

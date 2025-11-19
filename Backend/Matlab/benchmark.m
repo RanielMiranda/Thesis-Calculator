@@ -30,14 +30,12 @@ for s = 1:length(structures)
         try
             res = py.matlab_benchmark.run_benchmark(structure, expr, 'x');
 
-            % Extract values from Python dictionary (Time and Memory only)
             time_ms = double(res.get('time_ms'));
             mem_bytes = double(res.get('memory_bytes'));
             
             % Display in console
             fprintf('    Time: %.3f ms | Memory: %.2f KB\n', time_ms, mem_bytes/1024);
 
-            % Store in MATLAB table (4 columns: Structure, Expression, Time, Memory)
             results = [results; {structure, expr, time_ms, mem_bytes}];
         catch ME
             fprintf(2, 'Error calling Python for %s with structure %s: %s\n', expr, structure, ME.message);
