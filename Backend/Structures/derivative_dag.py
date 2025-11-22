@@ -409,7 +409,6 @@ class Differentiator:
 
     def _differentiate(self, node: DAGNode) -> DAGNode:
         if node in self.memo:
-            logger.debug(f"MEMO HIT for differentiation of: {repr(node)}")
             return self.memo[node]
 
         # --- Base cases ---
@@ -569,7 +568,6 @@ def compute_derivative_dag(expression_str: str, variable_str: str):
             for i in range(10): # Max 10 passes so more chance to converge
                 simplified_node = simplifier.run(current_node)
                 if simplified_node == current_node:
-                    logger.debug(f"Simplification stabilized after {i} passes.")
                     break
                 current_node = simplified_node
             return current_node

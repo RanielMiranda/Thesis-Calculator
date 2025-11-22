@@ -1,29 +1,24 @@
 import React from 'react';
+import { Ring } from 'ldrs/react'
+import 'ldrs/react/Ring.css'
+
 
 const MeasurementDisplay = ({ results, isLoading, progress }) => {
     const dataStructures = ['AST', 'DAG', 'NLL'];
-    const totalSteps = 120; 
-    
-    if (isLoading) {
-        const progressPercentage = (progress / totalSteps) * 100;
-        const progressBarWidth = `${progressPercentage}%`;
 
+    if (isLoading) {
         return (
             <div className="mt-6 p-6 bg-light rounded-lg shadow-lg text-center">
                 <h3 className="text-primary mb-4 font-bold text-lg">Performance Benchmark</h3>
                 <p className="text-dark mb-4">Running benchmarks, please wait...</p>
-                
-                <div className="w-full bg-secondary rounded-full h-4 relative overflow-hidden">
-                    <div 
-                        className="bg-primary h-4 rounded-full transition-width duration-500 ease-out" 
-                        style={{ width: progressBarWidth }}
-                    ></div>
-                    <span 
-                        className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-dark"
-                    >
-                        {progress}/{totalSteps}
-                    </span>
-                </div>
+                <Ring
+                    size="40"
+                    stroke="5"
+                    bgOpacity="0"
+                    speed="2"
+                    color="#3f7cf5"
+                />
+
             </div>
         )
     }

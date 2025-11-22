@@ -95,6 +95,7 @@ const Solver = () => {
                     eventSource.close();
                     setIsLoading(false);
                 } else if (data.type === 'error') {
+                    setDerivative('Invalid.expression');
                     setErrorMessage(data.detail);
                     eventSource.close();
                     setIsLoading(false);
