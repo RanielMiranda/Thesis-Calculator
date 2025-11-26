@@ -414,8 +414,7 @@ class Differentiator:
                 self._add_step(result_node, "powerRule_result", "Result of the Power Rule.")
                 return result_node
             else:
-                logger.warning(f"Derivative of f(x)^g(x) is not implemented.")
-                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented")
             
                          
 
@@ -442,7 +441,7 @@ class Differentiator:
             if op == 'sqrt':
                 return self._apply_chain_rule(node, op, lambda u, du: ASTNode('*', [ASTNode('/', [ASTNode(1.0), ASTNode('*', [ASTNode(2.0), node])]), du]))
 
-        raise ValueError(f"Differentiation rule for '{op}' not implemented.")
+        raise ValueError(f"Differentiation rule for '{op}' not implemented")
 
 # --- Main Compute Function ---
 def compute_derivative_ast(expression_str, variable_str):

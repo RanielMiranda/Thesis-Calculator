@@ -336,7 +336,7 @@ class Differentiator:
                 self._add_step(result_nll, "powerRule_result", "Result of the Power Rule.")
                 return result_nll
             else:
-                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented")
 
         if op in SUPPORTED_FUNCTIONS:
             if op == 'sin': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['cos', u], du])
@@ -349,7 +349,7 @@ class Differentiator:
             if op == 'log': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['/', 1.0, u], du])
             if op == 'sqrt': return self._apply_chain_rule(nll, op, lambda u, du: ['*', ['/', 1.0, ['*', 2.0, nll]], du])
         
-        raise ValueError(f"Differentiation rule for '{op}' not implemented.")
+        raise ValueError(f"Differentiation rule for '{op}' not implemented")
 
 # --- Main Compute Function ---
 def compute_derivative_nll(expression_str, variable_str):

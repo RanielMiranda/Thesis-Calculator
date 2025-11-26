@@ -489,7 +489,7 @@ class Differentiator:
                 result_node = self._create_node('*', (term1, du)) # (c * u^(c-1)) * u'
                 power_rule_result(result_node)
             else:
-                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+                raise NotImplementedError("Derivative of f(x)^g(x) is not implemented")
 
         # --- Chain Rule: functions ---
         elif op in SUPPORTED_FUNCTIONS:
@@ -533,9 +533,9 @@ class Differentiator:
                 inner = self._create_node('/', (self.one, two_sqrt_u))
                 result_node = apply_chain_rule("sqrt", inner)
             else:
-                raise ValueError(f"Differentiation rule for function '{op}' not implemented.")
+                raise ValueError(f"Differentiation rule for function '{op}' not implemented")
         else:
-            raise ValueError(f"Differentiation rule for operator '{op}' not implemented.")
+            raise ValueError(f"Differentiation rule for operator '{op}' not implemented")
 
         # Cache the result and return
         self.memo[node] = result_node

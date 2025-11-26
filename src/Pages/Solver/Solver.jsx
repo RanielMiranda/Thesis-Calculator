@@ -62,11 +62,23 @@ const Solver = () => {
         return formattedText;
     };
     
+    const errorClear = (message) => {
+        setDerivative('');
+        setErrorMessage(message);
+        setResults({
+            AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+            DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+            NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
+        });
+        setIsLoading(false);
+    };
+
     const solveExpression = async () => {
         if (!input.trim()) {
             setErrorMessage("Please enter a function to solve.");
             return;
         }
+
         setDerivative('');
         setErrorMessage('');
         setResults({
@@ -74,52 +86,57 @@ const Solver = () => {
             DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
             NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
         });
-        
         setIsLoading(true);
         setProgress(0);
-        
+
         try {
             const eventSource = new EventSource(`http://127.0.0.1:8000/solve_stream?expression=${encodeURIComponent(input)}&variable=${variable}`);
 
             eventSource.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                
+                console.log("SSE data received:", data);
+
                 if (data.type === 'progress') {
                     setProgress(data.progress);
+
                 } else if (data.type === 'complete') {
-                    setResults(data.results);
                     const firstResult = Object.values(data.results)[0];
+
+                    // Check if the derivative contains an error
+                    if (firstResult && firstResult.derivative && 
+                        (firstResult.derivative.includes("Error") || firstResult.derivative.includes("Invalid"))) {
+                        errorClear(firstResult.derivative);
+                        eventSource.close();
+                        return;
+                    }
+
+                    // Otherwise, update derivative and results
                     if (firstResult && firstResult.derivative) {
                         setDerivative(firstResult.derivative);
+                        setResults(data.results);
                     }
+
                     eventSource.close();
                     setIsLoading(false);
+
                 } else if (data.type === 'error') {
-                    setDerivative("Error: Invalid Expression");
-                    setErrorMessage(data.detail);
-                    setResults({
-                        AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
-                        DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
-                        NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
-                    });
+                    errorClear(data.detail);
                     eventSource.close();
-                    setIsLoading(false);
                 }
             };
 
             eventSource.onerror = (error) => {
                 console.error("EventSource failed:", error);
-                setErrorMessage("An error occurred during the benchmark.");
+                errorClear("An error occurred during the benchmark.");
                 eventSource.close();
-                setIsLoading(false);
             };
 
         } catch (error) {
             console.error("Error setting up SSE:", error);
-            setErrorMessage(`Error: ${error.message}`);
-            setIsLoading(false);
+            errorClear(`Error: ${error.message}`);
         }
     };
+
 
     const convertPythonExpToCaret = (expr) => {
         let converted = expr.replace(/exp/g, 'e^');
@@ -205,7 +222,7 @@ const Solver = () => {
                         />
                 </div>
                 <div className="w-full md:w-2/3">
-                    <SolutionDisplay derivative={derivative} error={errorMessage} />
+                    <SolutionDisplay derivative={derivative} error={errorMessage} input={input}/>
                     <MeasurementDisplay results={results} isLoading={isLoading} progress={progress} />
                     <StepByStep steps={results?.[dataStructure]?.steps || []} />
                 </div>

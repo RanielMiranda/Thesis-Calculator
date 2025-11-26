@@ -53,7 +53,7 @@ const StepByStep = ({ steps }) => {
         const stepData = [];
 
         for (const step of steps) {
-            const ruleKey =     step?.parts?.[0]?.explanation_key || (step.id ? step.id.split("_").slice(2).join("_") : "");
+            const ruleKey = step?.parts?.[0]?.explanation_key || (step.id ? step.id.split("_").slice(2).join("_") : "");
             
             // Decrease indent level when a rule's result is shown
             if (ruleKey.includes('_result') || ruleKey.includes('_fallback')) {
