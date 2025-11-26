@@ -163,7 +163,6 @@ async def benchmark_generator(expression: str, variable: str):
 
     except Exception as e:
         logger.error(f"Unexpected error during benchmark: {str(e)}", exc_info=True)
-        # This catches anything else (server logic errors)
         error_message = {'type': 'error', 'detail': f"An unexpected server error occurred: {str(e)}"}
         yield f"data: {json.dumps(error_message)}\n\n"
 

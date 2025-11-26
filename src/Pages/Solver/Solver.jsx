@@ -95,8 +95,13 @@ const Solver = () => {
                     eventSource.close();
                     setIsLoading(false);
                 } else if (data.type === 'error') {
-                    setDerivative('Invalid.expression');
+                    setDerivative("Error: Invalid Expression");
                     setErrorMessage(data.detail);
+                    setResults({
+                        AST: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+                        DAG: { derivative: '', steps: [], avgTime: null, avgMemory: null },
+                        NLL: { derivative: '', steps: [], avgTime: null, avgMemory: null }
+                    });
                     eventSource.close();
                     setIsLoading(false);
                 }
@@ -202,7 +207,7 @@ const Solver = () => {
                 <div className="w-full md:w-2/3">
                     <SolutionDisplay derivative={derivative} error={errorMessage} />
                     <MeasurementDisplay results={results} isLoading={isLoading} progress={progress} />
-                    <StepByStep steps={results[dataStructure]?.steps || []} />
+                    <StepByStep steps={results?.[dataStructure]?.steps || []} />
                 </div>
             </main>
             <Bottomcontent />

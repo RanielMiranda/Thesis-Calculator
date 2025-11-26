@@ -172,7 +172,7 @@ class Parser:
             # Represent as multiplication by -1
             return ASTNode('*', [ASTNode(-1.0), self._factor()])
 
-        raise ValueError(f"Parser Error: Unexpected token: {token}")
+        raise ValueError(f"Invalid Expression")
 
 # --- Helper and Formatting Functions ---
 def to_latex(node):
@@ -414,7 +414,10 @@ class Differentiator:
                 self._add_step(result_node, "powerRule_result", "Result of the Power Rule.")
                 return result_node
             else:
+                logger.warning(f"Derivative of f(x)^g(x) is not implemented.")
                 raise NotImplementedError("Derivative of f(x)^g(x) is not implemented.")
+            
+                         
 
         # Chain rule for functions
         if op in SUPPORTED_FUNCTIONS:

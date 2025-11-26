@@ -178,7 +178,7 @@ class Parser:
             factor = self._factor()
             return self._create_node('*', (neg_one, factor))
         
-        raise ValueError(f"Parser Error: Unexpected token: {token}")
+        raise ValueError(f"Invalid Expression")
 
 # --- Helper and Formatting Functions ---
 

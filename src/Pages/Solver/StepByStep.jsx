@@ -28,10 +28,17 @@ const stepExplanation = {
 const getBaseRule = (key) => {
     if (!key) return null;
     const base = key.split('_')[0];
-    // This handles compound keys like "constantMultipleRule"
     if (base === 'constant' && key.includes('Multiple')) return 'constantMultipleRule';
     if (base === 'exp' && key.includes('_a_u')) return 'expRule_a_u';
     return base;
+};
+
+const safeLatex = (step) => {
+    const parts = step?.parts;
+    if (!parts || !Array.isArray(parts) || !parts[0] || !parts[0].latex) {
+        return "";
+    }
+    return parts[0].latex;
 };
 
 const StepByStep = ({ steps }) => {
@@ -46,7 +53,7 @@ const StepByStep = ({ steps }) => {
         const stepData = [];
 
         for (const step of steps) {
-            const ruleKey = step.parts[0]?.explanation_key || step.id.split('_').slice(2).join('_');
+            const ruleKey =     step?.parts?.[0]?.explanation_key || (step.id ? step.id.split("_").slice(2).join("_") : "");
             
             // Decrease indent level when a rule's result is shown
             if (ruleKey.includes('_result') || ruleKey.includes('_fallback')) {
@@ -91,7 +98,7 @@ const StepByStep = ({ steps }) => {
         <div className="card p-6 bg-light shadow-lg rounded-lg mt-6 mx-auto w-full flex flex-col items-center pb-10">
             <h3 className="text-primary mb-6 font-bold text-xl md:text-2xl text-center">Step-by-Step Explanation</h3>
             <div className="steps-container w-full max-w-3xl" onMouseLeave={() => setActiveRule(null)}>
-                {processedSteps.map((step, stepIndex) => (
+                {Array.isArray(processedSteps) && processedSteps.map((step, stepIndex) => (
                     <div
                         key={step.id || `step-${stepIndex}`}
                         className={`step-item relative transition-colors duration-200 rounded-md py-1 ${activeRule && step.baseRule === activeRule ? 'bg-primary/10' : ''}`}
@@ -108,7 +115,7 @@ const StepByStep = ({ steps }) => {
                         )}
 
                         <div className="step-line flex items-center text-dark text-lg">
-                            <span className="w-2/5 text-sm text-gray-500 pr-4 truncate">{step.explanation_text}</span>
+                            <span className="w-2/5 text-sm text-gray-500 pr-4 truncate">{step.explanation_text ?? ""}</span>
                             <div
                                 className="w-3/5"
                                 onMouseMove={(e) => handleHover(step.baseRule, e)}
@@ -116,7 +123,7 @@ const StepByStep = ({ steps }) => {
                             >
                                 <MathJax inline dynamic>
                                     <span className={`cursor-default p-1 rounded ${step.baseRule ? 'hover:bg-primary/20' : ''}`}>
-                                        {`\\(${step.parts[0].latex}\\)`}
+                                        {`\\(${safeLatex(step)}\\)`}
                                     </span>
                                 </MathJax>
                             </div>

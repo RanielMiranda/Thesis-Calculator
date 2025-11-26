@@ -141,7 +141,7 @@ class Parser:
         elif token.type == TOKEN_OPERATOR and token.value == '-':
             self._eat(TOKEN_OPERATOR)
             return ['*', -1.0, self._factor()]
-        raise ValueError(f"Parser Error: Unexpected token: {token}")
+        raise ValueError(f"Invalid Expression")
 
 # --- Helper and Formatting Functions ---
 def to_latex(nll):
