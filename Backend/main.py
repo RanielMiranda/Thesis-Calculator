@@ -226,15 +226,17 @@ async def solve_derivative_stream(expression: str, variable: str = 'x'):
 @app.post("/generate")
 async def generate_expression_endpoint(input_data: GenerationInput):
     try:
-        expr, expr_latex = generate_random_expression(
+        # 🌟 MODIFIED UNPACKING: expr is the SymPy object, expr_str is its string form
+        expr_sym, expr_str, expr_latex = generate_random_expression(
             variables=input_data.variables,
             num_terms=input_data.num_terms,
             max_depth=input_data.max_depth
         )
 
+        # 🌟 Using the string representation for both.
         return {
-            "expression_string": expr,
-            "expression_latex": expr_latex
+            "expression_string": expr_str,
+            "expression_latex": expr_str # Placeholder/temporary fix for latex
         }
 
     except Exception as e:
