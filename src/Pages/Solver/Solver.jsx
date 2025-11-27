@@ -75,7 +75,7 @@ const Solver = () => {
 
     const solveExpression = async () => {
         if (!input.trim()) {
-            setErrorMessage("Please enter a function to solve.");
+            setErrorMessage('');
             return;
         }
 

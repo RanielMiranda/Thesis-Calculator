@@ -9,7 +9,7 @@ const SolutionDisplay = ({ derivative, error }) => {
         
         {error ? (
             <div class="text-dark text-xl font-bold ">
-              <h1> Error: {error} </h1> 
+              <h1> Invalid Expression </h1> 
             </div> 
         ) : (
           <div className="math-display bg-secondary py-2 rounded-lg text-dark">
